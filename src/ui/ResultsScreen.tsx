@@ -1,44 +1,6 @@
-import { useEffect, useRef } from 'react';
 import { useAppStore } from '../state/store';
 import { downloadBlob } from '../capture/recorder';
-import { composeAvatarSheet, Animation, SPRITE_W, SPRITE_H } from '../avatar/compose';
-import type { Avatar } from '../avatar/avatar';
-
-const PREVIEW_SCALE = 2;
-
-function AvatarPreview({ avatar }: { avatar: Avatar }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.imageSmoothingEnabled = false;
-    const sheet = composeAvatarSheet(avatar);
-    // Use the idle, frame-0 cell of the sheet.
-    const sy = Animation.Idle * SPRITE_H;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(
-      sheet,
-      0,
-      sy,
-      SPRITE_W,
-      SPRITE_H,
-      0,
-      0,
-      SPRITE_W * PREVIEW_SCALE,
-      SPRITE_H * PREVIEW_SCALE,
-    );
-  }, [avatar]);
-  return (
-    <canvas
-      ref={canvasRef}
-      width={SPRITE_W * PREVIEW_SCALE}
-      height={SPRITE_H * PREVIEW_SCALE}
-      style={{ imageRendering: 'pixelated', display: 'block' }}
-    />
-  );
-}
+import { AvatarPreview } from './AvatarEditor';
 
 export function ResultsScreen() {
   const result = useAppStore((s) => s.result);

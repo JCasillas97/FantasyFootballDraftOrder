@@ -1,0 +1,119 @@
+:root {
+  --bg: #0a0a14;
+  --bg-panel: #15152a;
+  --bg-elevated: #1f1f3a;
+  --border: #2d2d55;
+  --text: #f0f0ff;
+  --text-dim: #9090b8;
+  --accent: #ffcc00;
+  --accent-hot: #ff4444;
+  --good: #44dd88;
+
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    'Courier New',
+    monospace;
+  font-size: 14px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button {
+  font-family: inherit;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 2px solid var(--border);
+  padding: 8px 16px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: bold;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input[type='text'] {
+  font-family: inherit;
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 2px solid var(--border);
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+input[type='text']:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+}
+
+.app-title {
+  font-size: 24px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  margin: 0 0 24px;
+  text-transform: uppercase;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* Two-column setup grid collapses to single column on phones */
+.setup-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 720px) {
+  .setup-grid {
+    grid-template-columns: 1fr;
+  }
+  .app-shell {
+    padding: 12px;
+  }
+  .app-title {
+    font-size: 18px;
+    letter-spacing: 2px;
+  }
+}

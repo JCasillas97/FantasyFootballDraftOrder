@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../state/store';
 import { createMatch, tick, drainEvents, TICK_DT, type MatchState } from '../sim/tickLoop';
 import { freshSeed } from '../sim/rng';
-import { CANVAS_W, CANVAS_H, PLAYER_COLORS, drawFrame } from '../render/renderer';
+import { CANVAS_W, CANVAS_H, drawFrame, type SpriteSheets } from '../render/renderer';
+import { composeAvatarSheet } from '../avatar/compose';
 import { startRecording, isRecorderSupported, type RecorderHandle } from '../capture/recorder';
 
 export function MatchScreen() {
@@ -22,8 +23,14 @@ export function MatchScreen() {
     const state: MatchState = createMatch({ seed, rosterSize: roster.length });
     const commentary: string[] = [];
 
+    // Bake one sprite sheet per player. Done once here, not per frame.
+    const sheets: SpriteSheets = new Map();
+    for (const player of roster) {
+      sheets.set(player.id, composeAvatarSheet(player.avatar));
+    }
+
     // Draw the first frame immediately so captureStream has content to record.
-    drawFrame(ctx, state, roster, PLAYER_COLORS);
+    drawFrame(ctx, state, roster, sheets);
 
     let recorder: RecorderHandle | null = null;
     if (isRecorderSupported()) {
@@ -79,7 +86,7 @@ export function MatchScreen() {
         }
       }
 
-      drawFrame(ctx, state, roster, PLAYER_COLORS);
+      drawFrame(ctx, state, roster, sheets);
 
       if (state.finished) {
         // Hold the final frame for ~1.5s so the recording catches the result.

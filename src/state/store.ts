@@ -1,10 +1,13 @@
 import { create } from 'zustand';
+import type { Avatar } from '../avatar/avatar';
+import { presetAvatar } from '../avatar/presets';
 
 export type Screen = 'setup' | 'match' | 'results';
 
 export interface Player {
   id: number;
   name: string;
+  avatar: Avatar;
 }
 
 export interface RecordingInfo {
@@ -34,7 +37,11 @@ interface AppState {
 }
 
 const defaultRoster = (): Player[] =>
-  Array.from({ length: 12 }, (_, i) => ({ id: i, name: `Player ${i + 1}` }));
+  Array.from({ length: 12 }, (_, i) => ({
+    id: i,
+    name: `Player ${i + 1}`,
+    avatar: presetAvatar(i),
+  }));
 
 export const useAppStore = create<AppState>((set) => ({
   screen: 'setup',

@@ -1,26 +1,34 @@
 import { RING, ROPE_BAND } from '../sim/physics';
 import type { MatchState } from '../sim/tickLoop';
 import type { Player } from '../state/store';
+import { Animation, SPRITE_W, SPRITE_H, SPRITE_COLS } from '../avatar/compose';
+import type { Wrestler } from '../sim/wrestler';
 
 export const CANVAS_W = 960;
 export const CANVAS_H = 540;
 
 /**
- * Phase 1 renderer: colored squares with name tags. Phase 3 swaps these out
- * for sprite blits but the draw entry point stays the same.
+ * Sprite scale: each sprite pixel is drawn at SPRITE_SCALE canvas pixels.
+ * Higher = chunkier 8-bit look + bigger wrestlers, but ring fits fewer.
  */
+const SPRITE_SCALE = 2;
+const DRAW_W = SPRITE_W * SPRITE_SCALE;
+const DRAW_H = SPRITE_H * SPRITE_SCALE;
+
+export type SpriteSheets = Map<number, HTMLCanvasElement>;
+
 export function drawFrame(
   ctx: CanvasRenderingContext2D,
   state: MatchState,
   roster: readonly Player[],
-  colors: readonly string[],
+  sheets: SpriteSheets,
 ): void {
   ctx.fillStyle = '#0a0a14';
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
   drawCrowd(ctx);
   drawRing(ctx);
-  drawWrestlers(ctx, state, roster, colors);
+  drawWrestlers(ctx, state, roster, sheets);
   drawHud(ctx, state);
 }
 
@@ -91,9 +99,10 @@ function drawWrestlers(
   ctx: CanvasRenderingContext2D,
   state: MatchState,
   roster: readonly Player[],
-  colors: readonly string[],
+  sheets: SpriteSheets,
 ): void {
-  // Render eliminated wrestlers underneath (they're outside the ring).
+  // Draw in Y order so closer-to-camera wrestlers occlude farther ones, with
+  // eliminated wrestlers underneath everything (they're outside the ring).
   const sorted = [...state.wrestlers].sort((a, b) => {
     if (a.state === 'eliminated' && b.state !== 'eliminated') return -1;
     if (b.state === 'eliminated' && a.state !== 'eliminated') return 1;
@@ -101,50 +110,88 @@ function drawWrestlers(
   });
 
   for (const w of sorted) {
-    const color = colors[w.id % colors.length];
-    const wrestlerW = 16;
-    const wrestlerH = 24;
-    const x = Math.round(w.x - wrestlerW / 2);
-    const y = Math.round(w.y - wrestlerH);
+    const sheet = sheets.get(w.id);
+    if (!sheet) continue;
+
+    const drawX = Math.round(w.x - DRAW_W / 2);
+    const drawY = Math.round(w.y - DRAW_H + 4); // feet a bit above (w.x, w.y)
 
     if (w.state === 'eliminated') {
-      ctx.globalAlpha = 0.35;
+      ctx.globalAlpha = 0.5;
     }
 
     // Shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath();
-    ctx.ellipse(w.x, w.y + 2, wrestlerW / 2, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
+    if (w.state !== 'beingEliminated' && w.state !== 'eliminated') {
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath();
+      ctx.ellipse(w.x, w.y + 2, DRAW_W / 3, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
-    // Body
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, wrestlerW, wrestlerH);
+    const { anim, frame } = animationFor(w, state.t);
+    const sx = frame * SPRITE_W;
+    const sy = anim * SPRITE_H;
 
-    // Head (slightly lighter)
-    ctx.fillStyle = lighten(color, 0.25);
-    ctx.fillRect(x + 3, y - 8, wrestlerW - 6, 10);
-
-    // Facing pixel
-    ctx.fillStyle = '#000';
-    const eyeX = w.facing === 1 ? x + wrestlerW - 6 : x + 3;
-    ctx.fillRect(eyeX, y - 4, 2, 2);
+    // Flip horizontally if facing left.
+    if (w.facing === -1) {
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(sheet, sx, sy, SPRITE_W, SPRITE_H, -drawX - DRAW_W, drawY, DRAW_W, DRAW_H);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sheet, sx, sy, SPRITE_W, SPRITE_H, drawX, drawY, DRAW_W, DRAW_H);
+    }
 
     ctx.globalAlpha = 1;
 
-    // Name tag
+    // Name tag for active wrestlers only.
     if (w.state !== 'eliminated') {
       const name = roster[w.id]?.name ?? `P${w.id}`;
-      ctx.fillStyle = '#000';
-      const tagW = name.length * 7 + 4;
-      ctx.fillRect(w.x - tagW / 2, y - 22, tagW, 10);
-      ctx.fillStyle = '#fff';
-      ctx.font = '8px ui-monospace, monospace';
+      ctx.font = 'bold 10px ui-monospace, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(name, w.x, y - 17);
+      const tagW = ctx.measureText(name).width + 6;
+      ctx.fillStyle = 'rgba(0,0,0,0.85)';
+      ctx.fillRect(w.x - tagW / 2, drawY - 14, tagW, 12);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(name, w.x, drawY - 8);
     }
   }
+}
+
+function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number } {
+  let anim: Animation;
+  switch (w.state) {
+    case 'eliminated':
+      anim = Animation.Eliminated;
+      break;
+    case 'beingEliminated':
+      anim = Animation.Thrown;
+      break;
+    case 'attacking':
+      anim = Animation.Attack;
+      break;
+    case 'wandering':
+    case 'engaging':
+      anim = Math.hypot(w.vx, w.vy) > 8 ? Animation.Walk : Animation.Idle;
+      break;
+    default:
+      anim = Animation.Idle;
+  }
+
+  let frame: number;
+  if (anim === Animation.Thrown) {
+    // Use animPhase (0..1) so the rotation tracks the toss progress.
+    frame = Math.min(SPRITE_COLS - 1, Math.floor(w.animPhase * SPRITE_COLS));
+  } else if (anim === Animation.Eliminated) {
+    frame = 0;
+  } else {
+    // Time-based cycle, deterministic via wrestler id for stable phase offsets.
+    const cycleSec = anim === Animation.Walk ? 0.4 : 0.8;
+    const offset = w.id * 0.05;
+    frame = Math.floor(((t + offset) / cycleSec) * SPRITE_COLS) % SPRITE_COLS;
+  }
+  return { anim, frame };
 }
 
 function drawHud(ctx: CanvasRenderingContext2D, state: MatchState): void {
@@ -157,29 +204,3 @@ function drawHud(ctx: CanvasRenderingContext2D, state: MatchState): void {
   ctx.fillText(`Time: ${state.t.toFixed(1)}s`, 16, 36);
 }
 
-function lighten(hex: string, amount: number): string {
-  const num = parseInt(hex.replace('#', ''), 16);
-  const r = Math.min(255, ((num >> 16) & 0xff) + amount * 255);
-  const g = Math.min(255, ((num >> 8) & 0xff) + amount * 255);
-  const b = Math.min(255, (num & 0xff) + amount * 255);
-  return `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
-}
-
-/**
- * Stable distinct colors for the 12 placeholder wrestlers. Replaced by
- * proper sprites in Phase 3.
- */
-export const PLAYER_COLORS = [
-  '#ff4444',
-  '#44aaff',
-  '#ffcc00',
-  '#44dd88',
-  '#dd44dd',
-  '#ff8800',
-  '#88ddff',
-  '#dd8855',
-  '#aaff44',
-  '#ff4488',
-  '#8844ff',
-  '#ffffff',
-];

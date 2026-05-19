@@ -1,6 +1,44 @@
+import { useEffect, useRef } from 'react';
 import { useAppStore } from '../state/store';
-import { PLAYER_COLORS } from '../render/renderer';
 import { downloadBlob } from '../capture/recorder';
+import { composeAvatarSheet, Animation, SPRITE_W, SPRITE_H } from '../avatar/compose';
+import type { Avatar } from '../avatar/avatar';
+
+const PREVIEW_SCALE = 2;
+
+function AvatarPreview({ avatar }: { avatar: Avatar }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    const sheet = composeAvatarSheet(avatar);
+    // Use the idle, frame-0 cell of the sheet.
+    const sy = Animation.Idle * SPRITE_H;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(
+      sheet,
+      0,
+      sy,
+      SPRITE_W,
+      SPRITE_H,
+      0,
+      0,
+      SPRITE_W * PREVIEW_SCALE,
+      SPRITE_H * PREVIEW_SCALE,
+    );
+  }, [avatar]);
+  return (
+    <canvas
+      ref={canvasRef}
+      width={SPRITE_W * PREVIEW_SCALE}
+      height={SPRITE_H * PREVIEW_SCALE}
+      style={{ imageRendering: 'pixelated', display: 'block' }}
+    />
+  );
+}
 
 export function ResultsScreen() {
   const result = useAppStore((s) => s.result);
@@ -27,7 +65,6 @@ export function ResultsScreen() {
 
   // eliminationOrder[0] = first eliminated = pick #12.
   // eliminationOrder[N-1] = last standing = pick #1.
-  // Reverse so the draft board reads from pick #1 down.
   const board = result.eliminationOrder
     .map((wrestlerId, eliminationIndex) => ({
       wrestlerId,
@@ -54,7 +91,6 @@ export function ResultsScreen() {
       >
         {board.map((row) => {
           const player = result.roster[row.wrestlerId];
-          const color = PLAYER_COLORS[row.wrestlerId % PLAYER_COLORS.length];
           const isWinner = row.pickNumber === 1;
           return (
             <div
@@ -78,15 +114,7 @@ export function ResultsScreen() {
               >
                 #{row.pickNumber}
               </span>
-              <span
-                style={{
-                  width: 20,
-                  height: 20,
-                  background: color,
-                  border: '2px solid var(--border)',
-                  display: 'inline-block',
-                }}
-              />
+              <AvatarPreview avatar={player.avatar} />
               <span style={{ flex: 1 }}>{player?.name ?? `Player ${row.wrestlerId + 1}`}</span>
             </div>
           );

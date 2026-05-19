@@ -90,8 +90,8 @@ export function ResultsScreen() {
           </div>
           {!result.recording.isMp4 && (
             <div style={{ color: 'var(--accent-hot)', marginBottom: 8 }}>
-              ⚠ WebM file — won't preview inline in iMessage. For inline iPhone playback, run
-              the match in Chrome 126+ or Safari 17+.
+              Note: WebM file — won't preview inline in iMessage. For inline iPhone playback,
+              run the match in Chrome 126+ or Safari 17+.
             </div>
           )}
         </div>

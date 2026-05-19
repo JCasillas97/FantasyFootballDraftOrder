@@ -5,6 +5,9 @@ import { freshSeed } from '../sim/rng';
 import { CANVAS_W, CANVAS_H, drawFrame, type SpriteSheets } from '../render/renderer';
 import { composeAvatarSheet } from '../avatar/compose';
 import { startRecording, isRecorderSupported, type RecorderHandle } from '../capture/recorder';
+import { CommentaryStream } from '../sim/commentary';
+import { CommentaryLog } from './CommentaryLog';
+import { SFX, getCaptureAudioTracks, resumeAudio, setMuted, isMuted } from '../audio/engine';
 
 export function MatchScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -12,6 +15,8 @@ export function MatchScreen() {
   const setResult = useAppStore((s) => s.setResult);
   const setScreen = useAppStore((s) => s.setScreen);
   const [recordingActive, setRecordingActive] = useState(false);
+  const [lines, setLines] = useState<readonly string[]>([]);
+  const [muted, setMutedLocal] = useState(isMuted());
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -19,22 +24,30 @@ export function MatchScreen() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    void resumeAudio();
+
     const seed = freshSeed();
     const state: MatchState = createMatch({ seed, rosterSize: roster.length });
-    const commentary: string[] = [];
+    const commentary = new CommentaryStream(seed);
 
-    // Bake one sprite sheet per player. Done once here, not per frame.
     const sheets: SpriteSheets = new Map();
     for (const player of roster) {
       sheets.set(player.id, composeAvatarSheet(player.avatar));
     }
 
-    // Draw the first frame immediately so captureStream has content to record.
     drawFrame(ctx, state, roster, sheets);
 
+    // Start the recorder *after* audio tracks are available so they get baked
+    // into the MP4. If audio init fails (no user gesture yet) we still record
+    // video-only — better than nothing.
     let recorder: RecorderHandle | null = null;
     if (isRecorderSupported()) {
-      recorder = startRecording(canvas, { fps: 60, videoBitsPerSecond: 1_200_000 });
+      const audioTracks = getCaptureAudioTracks();
+      recorder = startRecording(canvas, {
+        fps: 60,
+        videoBitsPerSecond: 1_200_000,
+        audioTracks,
+      });
       if (recorder) setRecordingActive(true);
     }
 
@@ -61,7 +74,7 @@ export function MatchScreen() {
         seed,
         roster: roster.slice(),
         eliminationOrder: state.scheduler.schedule.eliminationOrder.slice(),
-        commentary,
+        commentary: commentary.all.slice(),
         recording,
       });
       setScreen('results');
@@ -80,16 +93,30 @@ export function MatchScreen() {
 
       const events = drainEvents(state);
       for (const ev of events) {
-        if (ev.type === 'eliminated') {
-          const name = roster[ev.wrestler]?.name ?? `P${ev.wrestler}`;
-          commentary.push(`#${ev.finishingPosition}: ${name} ELIMINATED`);
+        commentary.ingest(ev, roster);
+        switch (ev.type) {
+          case 'hit':
+            SFX.hit();
+            break;
+          case 'throw':
+            SFX.throw();
+            break;
+          case 'nearRope':
+            SFX.nearElimination();
+            break;
+          case 'eliminated':
+            SFX.eliminated();
+            break;
+          case 'matchEnd':
+            SFX.matchEnd();
+            break;
         }
       }
+      if (events.length > 0) setLines(commentary.all.slice());
 
       drawFrame(ctx, state, roster, sheets);
 
       if (state.finished) {
-        // Hold the final frame for ~1.5s so the recording catches the result.
         setTimeout(() => {
           stopped = true;
           finalize();
@@ -106,6 +133,12 @@ export function MatchScreen() {
       if (recorder) recorder.cancel();
     };
   }, [roster, setResult, setScreen]);
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    setMutedLocal(next);
+  };
 
   return (
     <div style={{ width: '100%', maxWidth: 980, position: 'relative' }}>
@@ -151,9 +184,25 @@ export function MatchScreen() {
           REC
         </div>
       )}
-      <p style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 8 }}>
-        Keep this tab visible while the match plays — background tabs throttle frame capture.
-      </p>
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: 8,
+        }}
+      >
+        <p style={{ color: 'var(--text-dim)', fontSize: 12, margin: 0 }}>
+          Keep this tab visible — background tabs throttle frame capture.
+        </p>
+        <button onClick={toggleMute} style={{ fontSize: 11 }}>
+          {muted ? 'Unmute' : 'Mute'}
+        </button>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <CommentaryLog lines={lines} />
+      </div>
     </div>
   );
 }

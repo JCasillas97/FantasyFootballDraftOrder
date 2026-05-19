@@ -96,3 +96,24 @@ input[type='text']:focus {
     opacity: 0.3;
   }
 }
+
+/* Two-column setup grid collapses to single column on phones */
+.setup-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 720px) {
+  .setup-grid {
+    grid-template-columns: 1fr;
+  }
+  .app-shell {
+    padding: 12px;
+  }
+  .app-title {
+    font-size: 18px;
+    letter-spacing: 2px;
+  }
+}

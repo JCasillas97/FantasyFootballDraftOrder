@@ -91,14 +91,7 @@ export function SetupScreen() {
         Enter 12 names and customize each wrestler. Click a row to edit.
       </p>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '320px 1fr',
-          gap: 16,
-          marginBottom: 16,
-        }}
-      >
+      <div className="setup-grid">
         {/* Roster list */}
         <div
           style={{

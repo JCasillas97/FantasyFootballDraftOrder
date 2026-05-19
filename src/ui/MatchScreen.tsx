@@ -12,8 +12,10 @@ import { SFX, getCaptureAudioTracks, resumeAudio, setMuted, isMuted } from '../a
 export function MatchScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const roster = useAppStore((s) => s.roster);
+  const replaySeed = useAppStore((s) => s.replaySeed);
   const setResult = useAppStore((s) => s.setResult);
   const setScreen = useAppStore((s) => s.setScreen);
+  const setReplaySeed = useAppStore((s) => s.setReplaySeed);
   const [recordingActive, setRecordingActive] = useState(false);
   const [lines, setLines] = useState<readonly string[]>([]);
   const [muted, setMutedLocal] = useState(isMuted());
@@ -26,7 +28,10 @@ export function MatchScreen() {
 
     void resumeAudio();
 
-    const seed = freshSeed();
+    const seed = replaySeed ?? freshSeed();
+    // Consume the replay seed so navigating back to setup and rerunning gives
+    // a fresh match instead of replaying the same one.
+    if (replaySeed !== null) setReplaySeed(null);
     const state: MatchState = createMatch({ seed, rosterSize: roster.length });
     const commentary = new CommentaryStream(seed);
 
@@ -132,7 +137,9 @@ export function MatchScreen() {
       cancelAnimationFrame(raf);
       if (recorder) recorder.cancel();
     };
-  }, [roster, setResult, setScreen]);
+    // We intentionally only run this once per mount; eslint can't infer that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleMute = () => {
     const next = !muted;

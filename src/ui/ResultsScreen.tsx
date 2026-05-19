@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import { useAppStore } from '../state/store';
 import { downloadBlob } from '../capture/recorder';
 import { AvatarPreview } from './AvatarEditor';
+import { renderResultsPng, copyBlobToClipboard } from '../lib/png';
+import { buildReplayUrl } from '../lib/seed';
 
 export function ResultsScreen() {
   const result = useAppStore((s) => s.result);
   const reset = useAppStore((s) => s.reset);
+  const [status, setStatus] = useState('');
 
   if (!result) {
     return (
@@ -19,6 +23,37 @@ export function ResultsScreen() {
     if (!result.recording) return;
     const ext = result.recording.isMp4 ? 'mp4' : 'webm';
     downloadBlob(result.recording.blob, `draft-rumble-${result.seed}.${ext}`);
+  };
+
+  const exportPng = async () => {
+    const blob = await renderResultsPng(result);
+    if (!blob) {
+      setStatus('PNG export failed.');
+      return;
+    }
+    downloadBlob(blob, `draft-rumble-${result.seed}.png`);
+    setStatus('PNG downloaded.');
+  };
+
+  const copyPng = async () => {
+    const blob = await renderResultsPng(result);
+    if (!blob) {
+      setStatus('PNG generation failed.');
+      return;
+    }
+    const ok = await copyBlobToClipboard(blob);
+    setStatus(ok ? 'Image copied to clipboard.' : 'Clipboard not available; PNG downloaded instead.');
+    if (!ok) downloadBlob(blob, `draft-rumble-${result.seed}.png`);
+  };
+
+  const copyReplayLink = async () => {
+    const url = buildReplayUrl(result.roster, result.seed);
+    try {
+      await navigator.clipboard.writeText(url);
+      setStatus('Replay link copied to clipboard.');
+    } catch {
+      setStatus(`Link: ${url}`);
+    }
   };
 
   const videoSizeKb = result.recording
@@ -102,8 +137,16 @@ export function ResultsScreen() {
             Download {result.recording.isMp4 ? 'MP4' : 'WebM'}
           </button>
         )}
+        <button onClick={exportPng}>Download PNG</button>
+        <button onClick={copyPng}>Copy PNG</button>
+        <button onClick={copyReplayLink}>Copy Replay Link</button>
         <button onClick={reset}>Run Another Rumble</button>
       </div>
+      {status && (
+        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8, wordBreak: 'break-all' }}>
+          {status}
+        </div>
+      )}
     </div>
   );
 }

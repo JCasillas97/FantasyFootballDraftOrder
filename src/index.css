@@ -86,3 +86,13 @@ input[type='text']:focus {
   margin: 0 0 24px;
   text-transform: uppercase;
 }
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}

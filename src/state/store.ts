@@ -7,6 +7,12 @@ export interface Player {
   name: string;
 }
 
+export interface RecordingInfo {
+  blob: Blob;
+  mimeType: string;
+  isMp4: boolean;
+}
+
 export interface MatchResult {
   seed: number;
   roster: Player[];
@@ -14,6 +20,7 @@ export interface MatchResult {
   eliminationOrder: number[];
   /** Optional play-by-play log built during the match. */
   commentary: string[];
+  recording: RecordingInfo | null;
 }
 
 interface AppState {

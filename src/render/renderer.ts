@@ -169,6 +169,11 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
     case 'beingEliminated':
       anim = Animation.Thrown;
       break;
+    case 'stunned':
+      // A laid-out victim uses the flat Eliminated pose; quick stun shows
+      // them dazed-but-standing in idle pose.
+      anim = w.downed ? Animation.Eliminated : Animation.Idle;
+      break;
     case 'attacking':
       // Pick the right animation row based on the move type so kicks look
       // like kicks, tackles look like spears, and top-rope dives look
@@ -217,13 +222,16 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
 
 /**
  * Y offset applied to top-rope attackers so they visibly arc through the air.
- * Peaks at mid-animation, lands at 0 by the hit frame.
+ * Climbs fast at the start (the "leap"), peaks well above the mat, and
+ * crashes down right at the hit frame.
  */
 function airborneOffset(w: Wrestler): number {
   if (w.state !== 'attacking') return 0;
   if (w.attackMove !== 'topRope' && w.attackMove !== 'splash') return 0;
-  // animPhase goes 0 → 1. Peak (-pixels) at phase 0.5, back to 0 at phase 1.
-  return -Math.sin(w.animPhase * Math.PI) * 38;
+  // Skewed arc: fast launch up, hangs at the top, slams down at hit. Sine
+  // of phase^0.6 puts the peak earlier than 0.5 and stretches the descent.
+  const skewed = Math.pow(w.animPhase, 0.6);
+  return -Math.sin(skewed * Math.PI) * 80;
 }
 
 function drawHud(ctx: CanvasRenderingContext2D, state: MatchState): void {

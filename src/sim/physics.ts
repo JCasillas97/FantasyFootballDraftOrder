@@ -58,6 +58,23 @@ export function clampToRing(x: number, y: number, r: Ring = RING): { x: number; 
   };
 }
 
+/**
+ * Clamp to the visible canvas (with sprite-size margin) so that wrestlers
+ * launched out of the ring stay on-screen as "dead bodies". The sprite is
+ * 48x64 on the canvas; the margins below keep the head/feet visible.
+ */
+export const CANVAS_BOUND_W = 960;
+export const CANVAS_BOUND_H = 540;
+export function clampToCanvas(x: number, y: number): { x: number; y: number } {
+  const marginX = 24;
+  const marginTop = 60;
+  const marginBottom = 12;
+  return {
+    x: Math.max(marginX, Math.min(CANVAS_BOUND_W - marginX, x)),
+    y: Math.max(marginTop, Math.min(CANVAS_BOUND_H - marginBottom, y)),
+  };
+}
+
 /** Direction vector from (x,y) toward the nearest rope edge, normalized. */
 export function toNearestRope(
   x: number,

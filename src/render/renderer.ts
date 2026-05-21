@@ -114,7 +114,7 @@ function drawWrestlers(
     if (!sheet) continue;
 
     const drawX = Math.round(w.x - DRAW_W / 2);
-    const drawY = Math.round(w.y - DRAW_H + 4); // feet a bit above (w.x, w.y)
+    const drawY = Math.round(w.y - DRAW_H + 4 + airborneOffset(w));
 
     if (w.state === 'eliminated') {
       ctx.globalAlpha = 0.5;
@@ -170,7 +170,15 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
       anim = Animation.Thrown;
       break;
     case 'attacking':
-      anim = Animation.Attack;
+      // Pick the right animation row based on the move type so kicks look
+      // like kicks and top-rope dives actually look airborne.
+      if (w.attackMove === 'kick') {
+        anim = Animation.Kick;
+      } else if (w.attackMove === 'topRope' || w.attackMove === 'splash') {
+        anim = Animation.TopRope;
+      } else {
+        anim = Animation.Attack;
+      }
       break;
     case 'wandering':
     case 'engaging':
@@ -182,17 +190,33 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
 
   let frame: number;
   if (anim === Animation.Thrown) {
-    // Use animPhase (0..1) so the rotation tracks the toss progress.
     frame = Math.min(SPRITE_COLS - 1, Math.floor(w.animPhase * SPRITE_COLS));
   } else if (anim === Animation.Eliminated) {
     frame = 0;
+  } else if (anim === Animation.Attack || anim === Animation.Kick) {
+    // Drive attack/kick frames off animPhase so the wind-up and hit visibly
+    // land with the sim's hit-frame timing, not desynced wall-clock cycles.
+    frame = Math.min(SPRITE_COLS - 1, Math.floor(w.animPhase * SPRITE_COLS));
+  } else if (anim === Animation.TopRope) {
+    // Hold the dive pose for the whole airborne phase.
+    frame = 0;
   } else {
-    // Time-based cycle, deterministic via wrestler id for stable phase offsets.
     const cycleSec = anim === Animation.Walk ? 0.4 : 0.8;
     const offset = w.id * 0.05;
     frame = Math.floor(((t + offset) / cycleSec) * SPRITE_COLS) % SPRITE_COLS;
   }
   return { anim, frame };
+}
+
+/**
+ * Y offset applied to top-rope attackers so they visibly arc through the air.
+ * Peaks at mid-animation, lands at 0 by the hit frame.
+ */
+function airborneOffset(w: Wrestler): number {
+  if (w.state !== 'attacking') return 0;
+  if (w.attackMove !== 'topRope' && w.attackMove !== 'splash') return 0;
+  // animPhase goes 0 → 1. Peak (-pixels) at phase 0.5, back to 0 at phase 1.
+  return -Math.sin(w.animPhase * Math.PI) * 38;
 }
 
 function drawHud(ctx: CanvasRenderingContext2D, state: MatchState): void {

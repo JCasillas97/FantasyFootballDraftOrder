@@ -19,7 +19,7 @@ import {
 export const SPRITE_W = 24;
 export const SPRITE_H = 32;
 export const SPRITE_COLS = 4;
-export const SPRITE_ROWS = 5;
+export const SPRITE_ROWS = 7;
 export const SHEET_W = SPRITE_W * SPRITE_COLS;
 export const SHEET_H = SPRITE_H * SPRITE_ROWS;
 
@@ -29,6 +29,8 @@ export enum Animation {
   Attack = 2,
   Thrown = 3,
   Eliminated = 4,
+  Kick = 5,
+  TopRope = 6,
 }
 
 /** Compose an avatar into a baked sprite sheet. Run once per match. */
@@ -57,51 +59,55 @@ interface Pose {
   rotation: number; // radians; non-zero for thrown
   flatten: boolean; // true for eliminated (lying down)
   raiseArms: boolean; // true for victory pose or for thrown
+  /** Kicking-leg extension phase (0 = no kick, 1 = full extend right). */
+  kickExtended: number;
+  /** Top-rope dive: body horizontal, arms forward like a flying tackle. */
+  diving: boolean;
 }
 
 function getPose(anim: Animation, frame: number): Pose {
+  const base: Pose = {
+    legShift: 0,
+    armExtended: false,
+    bodyBob: 0,
+    rotation: 0,
+    flatten: false,
+    raiseArms: false,
+    kickExtended: 0,
+    diving: false,
+  };
   switch (anim) {
     case Animation.Idle:
-      return {
-        legShift: 0,
-        armExtended: false,
-        bodyBob: frame === 1 || frame === 3 ? -1 : 0,
-        rotation: 0,
-        flatten: false,
-        raiseArms: false,
-      };
+      return { ...base, bodyBob: frame === 1 || frame === 3 ? -1 : 0 };
     case Animation.Walk:
       return {
+        ...base,
         legShift: frame === 1 ? -1 : frame === 3 ? 1 : 0,
-        armExtended: false,
         bodyBob: frame === 1 || frame === 3 ? -1 : 0,
-        rotation: 0,
-        flatten: false,
-        raiseArms: false,
       };
     case Animation.Attack:
+      return { ...base, armExtended: frame === 1 || frame === 2 };
+    case Animation.Kick:
+      // Wind up frame 0, leg extends frame 1-2, return frame 3.
       return {
-        legShift: 0,
-        armExtended: frame === 1 || frame === 2,
-        bodyBob: 0,
-        rotation: 0,
-        flatten: false,
-        raiseArms: false,
+        ...base,
+        kickExtended: frame === 0 ? 0 : frame === 1 ? 0.6 : frame === 2 ? 1 : 0.3,
+        bodyBob: frame === 1 || frame === 2 ? -1 : 0,
       };
+    case Animation.TopRope:
+      // Forward-diving pose. Body tilts forward, arms thrust out, legs back.
+      // Rotation kept modest so the sprite doesn't clip the cell.
+      return { ...base, diving: true, rotation: 0.45, bodyBob: -2 };
     case Animation.Thrown:
       return {
-        legShift: 0,
-        armExtended: false,
+        ...base,
         bodyBob: -frame * 2,
         rotation: (frame * Math.PI) / 8,
-        flatten: false,
         raiseArms: true,
       };
     case Animation.Eliminated:
       return {
-        legShift: 0,
-        armExtended: false,
-        bodyBob: 0,
+        ...base,
         rotation: Math.PI / 2,
         flatten: true,
         raiseArms: false,
@@ -140,20 +146,33 @@ function drawFrame(
     ctx.fillRect(x, y, w, h);
   };
 
-  // ---- Boots (drawn first so legs overlap) ----
-  const bootY = 28;
-  const leftBootX = 8 + pose.legShift;
-  const rightBootX = 13 - pose.legShift;
-  px(leftBootX, bootY, 4, 4, '#1a1a1a');
-  px(rightBootX, bootY, 4, 4, '#1a1a1a');
-  px(leftBootX, bootY, 4, 1, '#3a3a3a'); // shine
-  px(rightBootX, bootY, 4, 1, '#3a3a3a');
-
-  // ---- Legs (skin) ----
-  px(leftBootX, 23, 3, 5, skin);
-  px(rightBootX + 1, 23, 3, 5, skin);
-  px(leftBootX, 27, 3, 1, skinShade); // shading at boot top
-  px(rightBootX + 1, 27, 3, 1, skinShade);
+  // ---- Boots + legs ----
+  if (pose.kickExtended > 0) {
+    // One leg planted, one horizontal kick extending right.
+    const k = pose.kickExtended; // 0..1 extension factor
+    // Standing leg (left)
+    px(9, 23, 3, 5, skin);
+    px(9, 28, 4, 4, '#1a1a1a'); // boot
+    // Kicking leg: horizontal segment from the hip out
+    const kickReach = Math.round(8 * k); // extra pixels of leg
+    const baseEndX = 13;
+    const kickEndX = baseEndX + kickReach;
+    px(baseEndX, 25, kickReach + 1, 3, skin); // horizontal upper-leg
+    px(kickEndX, 25, 4, 3, '#1a1a1a'); // boot at end
+    px(kickEndX, 25, 4, 1, '#3a3a3a'); // boot shine
+  } else {
+    const bootY = 28;
+    const leftBootX = 8 + pose.legShift;
+    const rightBootX = 13 - pose.legShift;
+    px(leftBootX, bootY, 4, 4, '#1a1a1a');
+    px(rightBootX, bootY, 4, 4, '#1a1a1a');
+    px(leftBootX, bootY, 4, 1, '#3a3a3a');
+    px(rightBootX, bootY, 4, 1, '#3a3a3a');
+    px(leftBootX, 23, 3, 5, skin);
+    px(rightBootX + 1, 23, 3, 5, skin);
+    px(leftBootX, 27, 3, 1, skinShade);
+    px(rightBootX + 1, 27, 3, 1, skinShade);
+  }
 
   // ---- Trunks ----
   px(7, 18, 10, 5, gear);
@@ -168,14 +187,26 @@ function drawFrame(
   px(9, 12, 1, 6, shade(gear, 0.2));
 
   // ---- Arms ----
-  if (pose.armExtended) {
-    // Punching arm extends out to the right (facing right in sprite frame)
+  if (pose.diving) {
+    // Superman dive: both arms thrust forward together to the right.
+    px(17, 12, 5, 2, skin);
+    px(21, 12, 2, 2, skin); // fist
+    px(17, 14, 5, 2, skin);
+    px(21, 14, 2, 2, skin);
+    px(17, 13, 5, 1, skinShade);
+  } else if (pose.armExtended) {
+    // Punching arm extends out to the right.
     px(17, 14, 5, 3, skin);
     px(21, 14, 2, 3, skin); // fist
     px(17, 16, 5, 1, skinShade);
     // Other arm tucked
     px(5, 14, 2, 5, skin);
     px(5, 18, 2, 1, skinShade);
+  } else if (pose.kickExtended > 0) {
+    // Both arms back for balance during a kick.
+    px(4, 14, 2, 5, skin);
+    px(4, 18, 2, 1, skinShade);
+    px(7, 13, 2, 6, skin);
   } else if (pose.raiseArms) {
     px(5, 10, 2, 5, skin);
     px(17, 10, 2, 5, skin);

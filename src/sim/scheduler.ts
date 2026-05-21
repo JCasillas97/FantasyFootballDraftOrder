@@ -29,10 +29,9 @@ export function buildSchedule(rosterSize: number, rng: Rng): Schedule {
   const indices = Array.from({ length: rosterSize }, (_, i) => i);
   const eliminationOrder = shuffle(indices, rng);
 
-  // Scale duration with roster size so each wrestler gets roughly the same
-  // screen time regardless of league size. 12 wrestlers → ~150-210s (the
-  // original target). 6 → ~75-105s. 20 → ~250-350s.
-  const secondsPerWrestler = 12.5 + rng.next() * 5;
+  // ~4-5 seconds per wrestler. 12 teams → ~48-60s; 6 teams → ~24-30s;
+  // 20 teams → ~80-100s. Short and punchy so the match doesn't drag.
+  const secondsPerWrestler = 4 + rng.next() * 1;
   const duration = rosterSize * secondsPerWrestler;
   const targets = pacingCurve(rosterSize - 1, duration);
 

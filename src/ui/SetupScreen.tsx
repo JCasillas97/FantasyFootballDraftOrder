@@ -177,6 +177,11 @@ export function SetupScreen() {
                   value={p.name}
                   maxLength={16}
                   onClick={(e) => e.stopPropagation()}
+                  onFocus={(e) => {
+                    // Select default "Player N" placeholder so the first
+                    // keystroke replaces it; leave custom names untouched.
+                    if (/^Player \d+$/.test(e.target.value)) e.target.select();
+                  }}
                   onChange={(e) => updatePlayer(p.id, { name: e.target.value })}
                   style={{ flex: 1, fontSize: 12, padding: '4px 6px' }}
                 />

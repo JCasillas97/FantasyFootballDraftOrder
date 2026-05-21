@@ -8,26 +8,55 @@ import {
   winnerOf,
   type SchedulerState,
 } from './scheduler';
-import { type Wrestler, makeWrestler, isActive } from './wrestler';
+import { type Wrestler, type AttackMove, makeWrestler, isActive } from './wrestler';
 import { nearestOther, pickWanderPoint, startingPositions } from './ai';
 import { distSq, clampToRing, toNearestRope } from './physics';
 import { type GameEvent } from './events';
 
 export const TICK_HZ = 60;
 export const TICK_DT = 1 / TICK_HZ;
-const STRIKE_RADIUS_SQ = 28 * 28; // close enough to land a punch
+const STRIKE_RADIUS_SQ = 32 * 32; // close enough to land a hit
 const ELIMINATION_TOSS_DURATION = 1.0;
-const WANDER_SPEED = 45;
-const ENGAGE_SPEED = 70;
-const VICTIM_PUSH_SPEED = 110;
-const ELIM_VELOCITY = 260;
-const ATTACK_DURATION = 0.32;
-const ATTACK_HIT_FRAME = 0.15;
-const RECOVER_DURATION = 0.22;
-const STUN_DURATION = 0.35;
-const HIT_IMPULSE = 90;
-/** Per-tick probability that a wandering wrestler picks a new opponent. */
-const ENGAGE_PROB = 0.012;
+const WANDER_SPEED = 50;
+const ENGAGE_SPEED = 85;
+const VICTIM_PUSH_SPEED = 120;
+const ELIM_VELOCITY = 280;
+const RECOVER_DURATION = 0.18;
+const STUN_DURATION = 0.30;
+/** Per-tick probability a wandering wrestler picks a fight with a nearby opponent. */
+const ENGAGE_PROB = 0.045;
+/** Lookahead seconds before a scheduled elimination during which the gang-up triggers. */
+const DANGER_WINDOW = 4;
+
+interface MoveDef {
+  duration: number;
+  hitFrame: number; // time-into-attack the hit lands
+  impulse: number; // knockback magnitude applied to victim on hit
+  chargeSpeed: number; // 0 = stand still, >0 = attacker lunges forward during wind-up
+}
+
+/**
+ * Move catalog. Eliminations and regular combat draw from different pools so
+ * eliminations *feel* like a finishing move, not a stiff jab.
+ */
+const MOVE_DEFS: Record<AttackMove, MoveDef> = {
+  punch: { duration: 0.26, hitFrame: 0.14, impulse: 80, chargeSpeed: 0 },
+  kick: { duration: 0.34, hitFrame: 0.20, impulse: 130, chargeSpeed: 0 },
+  tackle: { duration: 0.46, hitFrame: 0.28, impulse: 170, chargeSpeed: 120 },
+  clothesline: { duration: 0.42, hitFrame: 0.24, impulse: 200, chargeSpeed: 90 },
+  grapple: { duration: 0.30, hitFrame: 0.18, impulse: 60, chargeSpeed: 0 },
+  irishWhip: { duration: 0.34, hitFrame: 0.20, impulse: 220, chargeSpeed: 0 },
+  topRope: { duration: 0.70, hitFrame: 0.55, impulse: 280, chargeSpeed: 60 },
+  splash: { duration: 0.55, hitFrame: 0.40, impulse: 260, chargeSpeed: 40 },
+};
+
+const REGULAR_MOVES: readonly AttackMove[] = ['punch', 'punch', 'kick', 'tackle', 'clothesline'];
+const FINISHER_MOVES: readonly AttackMove[] = [
+  'topRope',
+  'splash',
+  'clothesline',
+  'irishWhip',
+];
 
 export interface MatchState {
   t: number;
@@ -112,12 +141,17 @@ export function tick(s: MatchState): void {
     }
   }
 
-  // Forced elimination trigger: if the scheduler's elimination target has
-  // arrived and the victim isn't already being tossed, force the sequence.
+  // Forced elimination trigger: when the scheduler's timestamp arrives,
+  // pick a nearby attacker and have them perform a finisher whose hit
+  // frame launches the scripted victim out of the ring.
   if (victim !== null && target !== null && s.t >= target) {
     const v = s.wrestlers[victim];
-    if (isActive(v) && v.state !== 'beingEliminated') {
-      forceElimination(s, v);
+    if (
+      isActive(v) &&
+      v.state !== 'beingEliminated' &&
+      !isFinisherInProgress(s, victim)
+    ) {
+      triggerFinisher(s, v);
     }
   }
 
@@ -152,44 +186,38 @@ export function tick(s: MatchState): void {
 }
 
 function wanderStep(w: Wrestler, s: MatchState, victim: number | null, target: number | null): void {
-  // Arrived at wander point? Pick a new one.
   if (distSq(w.x, w.y, w.wanderX, w.wanderY) < 15 * 15) {
     const p = pickWanderPoint(s.rng);
     w.wanderX = p.x;
     w.wanderY = p.y;
   }
 
-  // If this wrestler IS the current victim and the elimination window is
-  // approaching, steer toward the nearest rope. The eliminator role is
-  // cosmetic: whichever wrestler happens to be near at toss time.
   let steerX = w.wanderX;
   let steerY = w.wanderY;
   let speed = WANDER_SPEED;
   const isVictim = victim !== null && victim === w.id;
   const tilElim = target !== null ? target - s.t : Infinity;
-  if (isVictim && tilElim < 5) {
+  if (isVictim && tilElim < DANGER_WINDOW + 1) {
+    // Scheduled victim drifts toward the nearest rope so the finisher lands
+    // visually near the edge.
     const dir = toNearestRope(w.x, w.y);
     steerX = w.x + dir.dx * 200;
     steerY = w.y + dir.dy * 200;
     speed = VICTIM_PUSH_SPEED;
   }
 
-  // Non-victims gravitate toward the current victim near the toss window so
-  // they're nearby when the elimination triggers (this is what makes the
-  // eliminator role land on a believable nearby wrestler, not someone across
-  // the ring). This nudge does NOT change WHO is eliminated.
-  if (!isVictim && victim !== null && tilElim < 4) {
+  // Gang-up: in the danger window, other wrestlers swarm the victim. This is
+  // cosmetic — the scheduler still owns who gets eliminated.
+  if (!isVictim && victim !== null && tilElim < DANGER_WINDOW) {
     const v = s.wrestlers[victim];
-    if (isActive(v) && distSq(w.x, w.y, v.x, v.y) < 220 * 220) {
+    if (isActive(v) && distSq(w.x, w.y, v.x, v.y) < 260 * 260) {
       w.state = 'engaging';
       w.targetId = victim;
       return;
     }
   }
 
-  // Background combat: every so often a wandering wrestler picks a fight
-  // with a nearby active opponent. Keeps the ring active even when no
-  // elimination is imminent.
+  // Background brawls. Pick a nearby opponent and start a fight.
   if (s.rng.next() < ENGAGE_PROB) {
     const opponent = nearestOther(w, s.wrestlers);
     if (opponent && distSq(w.x, w.y, opponent.x, opponent.y) < 180 * 180) {
@@ -216,40 +244,78 @@ function engageStep(w: Wrestler, s: MatchState): void {
   const d2 = distSq(w.x, w.y, t.x, t.y);
   w.facing = t.x < w.x ? -1 : 1;
   if (d2 < STRIKE_RADIUS_SQ) {
-    // In strike range — wind up an attack.
-    w.state = 'attacking';
-    w.stateTimer = ATTACK_DURATION;
-    w.animPhase = 0;
-    w.vx = 0;
-    w.vy = 0;
+    // In strike range — pick a regular move and wind up.
+    startAttack(w, s, REGULAR_MOVES[s.rng.nextInt(REGULAR_MOVES.length)], false);
     return;
   }
   steerToward(w, t.x, t.y, ENGAGE_SPEED);
 }
 
+function startAttack(w: Wrestler, _s: MatchState, move: AttackMove, isFinisher: boolean): void {
+  const def = MOVE_DEFS[move];
+  w.state = 'attacking';
+  w.attackMove = move;
+  w.isFinisher = isFinisher;
+  w.stateTimer = def.duration;
+  w.animPhase = 0;
+  // Charge moves keep some forward velocity; standing moves freeze.
+  if (def.chargeSpeed === 0) {
+    w.vx = 0;
+    w.vy = 0;
+  }
+}
+
 function attackStep(w: Wrestler, s: MatchState): void {
+  const move = w.attackMove ?? 'punch';
+  const def = MOVE_DEFS[move];
   const wasAbove = w.stateTimer;
   w.stateTimer -= TICK_DT;
-  w.animPhase = 1 - w.stateTimer / ATTACK_DURATION;
-  // Hit frame: fires once when timer crosses the hit threshold.
-  const hitThreshold = ATTACK_DURATION - ATTACK_HIT_FRAME;
-  if (wasAbove > hitThreshold && w.stateTimer <= hitThreshold) {
-    const t = w.targetId !== null ? s.wrestlers[w.targetId] : null;
-    if (t && isActive(t) && t.state !== 'beingEliminated') {
-      // Apply impulse to victim (push them away from attacker).
+  w.animPhase = 1 - w.stateTimer / def.duration;
+
+  // Charge moves keep the attacker moving toward the target during wind-up.
+  if (def.chargeSpeed > 0 && w.targetId !== null) {
+    const t = s.wrestlers[w.targetId];
+    if (t && isActive(t)) {
       const dx = t.x - w.x;
       const dy = t.y - w.y;
       const len = Math.hypot(dx, dy) || 1;
-      t.vx = (dx / len) * HIT_IMPULSE;
-      t.vy = (dy / len) * HIT_IMPULSE;
-      t.state = 'stunned';
-      t.stateTimer = STUN_DURATION;
-      s.pendingEvents.push({ type: 'hit', attacker: w.id, victim: t.id, move: 'punch' });
+      w.vx = (dx / len) * def.chargeSpeed;
+      w.vy = (dy / len) * def.chargeSpeed;
+      w.facing = dx < 0 ? -1 : 1;
+    }
+  }
+
+  // Hit frame: fires once when timer crosses the threshold.
+  const hitThreshold = def.duration - def.hitFrame;
+  if (wasAbove > hitThreshold && w.stateTimer <= hitThreshold) {
+    const t = w.targetId !== null ? s.wrestlers[w.targetId] : null;
+    if (t && isActive(t) && t.state !== 'beingEliminated') {
+      const dx = t.x - w.x;
+      const dy = t.y - w.y;
+      const len = Math.hypot(dx, dy) || 1;
+      if (w.isFinisher) {
+        // The scripted elimination — launch the victim out of the ring.
+        const dir = toNearestRope(t.x, t.y);
+        t.vx = dir.dx * ELIM_VELOCITY;
+        t.vy = dir.dy * ELIM_VELOCITY - 80;
+        t.state = 'beingEliminated';
+        t.stateTimer = ELIMINATION_TOSS_DURATION;
+        t.animPhase = 0;
+        s.pendingEvents.push({ type: 'throw', attacker: w.id, victim: t.id });
+      } else {
+        t.vx = (dx / len) * def.impulse;
+        t.vy = (dy / len) * def.impulse;
+        t.state = 'stunned';
+        t.stateTimer = STUN_DURATION;
+        s.pendingEvents.push({ type: 'hit', attacker: w.id, victim: t.id, move });
+      }
     }
   }
   if (w.stateTimer <= 0) {
     w.state = 'recovering';
     w.stateTimer = RECOVER_DURATION;
+    w.attackMove = null;
+    w.isFinisher = false;
   }
 }
 
@@ -287,21 +353,52 @@ function steerToward(w: Wrestler, tx: number, ty: number, speed: number): void {
   w.facing = dx < 0 ? -1 : 1;
 }
 
-function forceElimination(s: MatchState, v: Wrestler): void {
-  // Identity of the eliminator is cosmetic — pick the nearest active
-  // wrestler. If none is near, eliminator is null (rare; first-tick fallback).
-  const eliminator = nearestOther(v, s.wrestlers);
-  const dir = toNearestRope(v.x, v.y);
-  v.state = 'beingEliminated';
-  v.stateTimer = ELIMINATION_TOSS_DURATION;
-  v.animPhase = 0;
-  v.vx = dir.dx * ELIM_VELOCITY;
-  v.vy = dir.dy * ELIM_VELOCITY - 60; // slight upward arc
-  s.pendingEvents.push({
-    type: 'throw',
-    attacker: eliminator?.id ?? v.id,
-    victim: v.id,
-  });
+function triggerFinisher(s: MatchState, v: Wrestler): void {
+  // Identity of the eliminator is cosmetic — prefer the nearest active
+  // wrestler who is *available* to start a finisher (not currently mid-
+  // animation). Fall back to nearest-active. Last resort: direct toss.
+  const eliminator = pickEliminator(s, v);
+  if (!eliminator) {
+    // Nobody nearby — just launch the victim. Rare.
+    const dir = toNearestRope(v.x, v.y);
+    v.state = 'beingEliminated';
+    v.stateTimer = ELIMINATION_TOSS_DURATION;
+    v.animPhase = 0;
+    v.vx = dir.dx * ELIM_VELOCITY;
+    v.vy = dir.dy * ELIM_VELOCITY - 60;
+    s.pendingEvents.push({ type: 'throw', attacker: v.id, victim: v.id });
+    return;
+  }
+  eliminator.targetId = v.id;
+  // Pick a flashy finisher. If the victim is already very close to a rope,
+  // bias toward clothesline/irishWhip (horizontal); otherwise top-rope.
+  const move = FINISHER_MOVES[s.rng.nextInt(FINISHER_MOVES.length)];
+  startAttack(eliminator, s, move, true);
+}
+
+function isFinisherInProgress(s: MatchState, victimId: number): boolean {
+  for (const w of s.wrestlers) {
+    if (w.state === 'attacking' && w.isFinisher && w.targetId === victimId) return true;
+  }
+  return false;
+}
+
+function pickEliminator(s: MatchState, victim: Wrestler): Wrestler | null {
+  let best: Wrestler | null = null;
+  let bestD = Infinity;
+  for (const other of s.wrestlers) {
+    if (other.id === victim.id || !isActive(other)) continue;
+    if (other.state === 'beingEliminated') continue;
+    const d = distSq(other.x, other.y, victim.x, victim.y);
+    // Prefer wrestlers who can immediately start a move.
+    const ready = other.state === 'wandering' || other.state === 'engaging';
+    const score = ready ? d : d + 50_000;
+    if (score < bestD) {
+      bestD = score;
+      best = other;
+    }
+  }
+  return best;
 }
 
 function eliminateStep(w: Wrestler, s: MatchState): void {

@@ -1,4 +1,5 @@
 import type { GameEvent } from './events';
+import type { AttackMove } from './wrestler';
 import { displayName, type Player } from '../state/store';
 
 /**
@@ -41,6 +42,44 @@ const WINNER_LINES = [
   '{w} is the LAST ONE STANDING. Number one overall.',
 ];
 
+// Move-specific hit flavor. Only a fraction of hits log a line (most stay
+// silent) so the log doesn't become a wall of text in a 45-second match.
+const HIT_LINES: Record<AttackMove, string[]> = {
+  punch: [
+    '{a} CRACKS {v} in the jaw!',
+    '{a} fires off a stiff jab on {v}.',
+    '{a} buries a fist into {v}.',
+  ],
+  kick: [
+    '{a} boots {v} square in the chest!',
+    '{a} lands a roundhouse on {v}!',
+    '{a} drives a knee into {v}.',
+  ],
+  tackle: [
+    '{a} SPEARS {v}!',
+    '{a} levels {v} with a flying tackle!',
+    '{a} runs through {v} like a freight train.',
+  ],
+  clothesline: [
+    '{a} nearly takes {v}’s head off with a clothesline!',
+    '{a} catches {v} with a brutal clothesline!',
+  ],
+  grapple: ['{a} locks up with {v}.', '{a} muscles {v} into a hold.'],
+  irishWhip: [
+    '{a} sends {v} flying into the ropes!',
+    '{a} whips {v} across the ring!',
+  ],
+  topRope: [
+    '{a} flies off the top rope and CRUSHES {v}!',
+    'TOP ROPE! {a} comes down on {v}!',
+    '{a} hits a high-flying splash on {v}!',
+  ],
+  splash: [
+    '{a} crashes onto {v} with a splash!',
+    '{a} drops the bomb on {v}!',
+  ],
+};
+
 export class CommentaryStream {
   private lines: string[] = [];
   private rngState: number;
@@ -57,6 +96,16 @@ export class CommentaryStream {
   ingest(ev: GameEvent, roster: readonly Player[]): void {
     const nameOf = (i: number) => (roster[i] ? displayName(roster[i]) : `Player ${i + 1}`);
     switch (ev.type) {
+      case 'hit': {
+        // Only ~25% of hits make the log, so it doesn't fill up too fast.
+        if (this.nextRoll() < 0.25) {
+          const lines = HIT_LINES[ev.move] ?? HIT_LINES.punch;
+          this.push(
+            this.pick(lines).replace('{a}', nameOf(ev.attacker)).replace('{v}', nameOf(ev.victim)),
+          );
+        }
+        break;
+      }
       case 'throw': {
         this.push(
           this.pick(TOSS_LINES).replace('{a}', nameOf(ev.attacker)).replace('{v}', nameOf(ev.victim)),
@@ -91,12 +140,15 @@ export class CommentaryStream {
   }
 
   private pick<T>(arr: readonly T[]): T {
-    // Mulberry32 step (inlined; we don't import the sim rng to avoid coupling).
+    return arr[Math.floor(this.nextRoll() * arr.length)];
+  }
+
+  /** Mulberry32 step (inlined; we don't import sim rng to avoid coupling). */
+  private nextRoll(): number {
     this.rngState = (this.rngState + 0x6d2b79f5) >>> 0;
     let t = this.rngState;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    const u = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    return arr[Math.floor(u * arr.length)];
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 }

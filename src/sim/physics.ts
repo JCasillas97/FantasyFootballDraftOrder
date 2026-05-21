@@ -21,6 +21,14 @@ export const RING: Ring = {
 };
 
 export const ROPE_BAND = 18;
+/**
+ * Inset from the ring edge that wrestler centers must stay inside. Without
+ * this they cluster on the rope band itself, which looks like they're
+ * standing on top of the ropes. The elimination sequence (state =
+ * 'beingEliminated') bypasses the clamp so launched wrestlers do cross
+ * outside.
+ */
+export const PLAYABLE_INSET = ROPE_BAND + 8;
 
 export function ringLeft(r: Ring = RING): number {
   return r.cx - r.halfW;
@@ -42,11 +50,11 @@ export function distSq(ax: number, ay: number, bx: number, by: number): number {
   return dx * dx + dy * dy;
 }
 
-/** Clamp a point to remain inside the ring (allowing it to touch the rope). */
+/** Clamp a point to the playable area inside the ropes. */
 export function clampToRing(x: number, y: number, r: Ring = RING): { x: number; y: number } {
   return {
-    x: Math.max(ringLeft(r), Math.min(ringRight(r), x)),
-    y: Math.max(ringTop(r), Math.min(ringBottom(r), y)),
+    x: Math.max(ringLeft(r) + PLAYABLE_INSET, Math.min(ringRight(r) - PLAYABLE_INSET, x)),
+    y: Math.max(ringTop(r) + PLAYABLE_INSET, Math.min(ringBottom(r) - PLAYABLE_INSET, y)),
   };
 }
 

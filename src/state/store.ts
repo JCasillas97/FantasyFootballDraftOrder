@@ -47,9 +47,16 @@ interface AppState {
 const defaultRoster = (size: number = DEFAULT_ROSTER_SIZE): Player[] =>
   Array.from({ length: size }, (_, i) => ({
     id: i,
-    name: `Player ${i + 1}`,
+    name: '',
     avatar: presetAvatar(i),
   }));
+
+/** Resolves the on-screen / shareable name. Empty names fall back to "Player N". */
+export function displayName(player: Player, index?: number): string {
+  const trimmed = player.name.trim();
+  if (trimmed) return trimmed;
+  return `Player ${(index ?? player.id) + 1}`;
+}
 
 export const useAppStore = create<AppState>((set, get) => ({
   screen: 'setup',
@@ -69,7 +76,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Growing: append fresh players with preset avatars at the new indices.
       const extra: Player[] = [];
       for (let i = current.length; i < clamped; i++) {
-        extra.push({ id: i, name: `Player ${i + 1}`, avatar: presetAvatar(i) });
+        extra.push({ id: i, name: '', avatar: presetAvatar(i) });
       }
       set({ roster: [...current, ...extra] });
     }

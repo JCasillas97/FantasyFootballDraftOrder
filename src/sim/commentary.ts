@@ -1,5 +1,5 @@
 import type { GameEvent } from './events';
-import type { Player } from '../state/store';
+import { displayName, type Player } from '../state/store';
 
 /**
  * Templated play-by-play. The match engine emits semantic events; this turns
@@ -55,33 +55,30 @@ export class CommentaryStream {
   }
 
   ingest(ev: GameEvent, roster: readonly Player[]): void {
+    const nameOf = (i: number) => (roster[i] ? displayName(roster[i]) : `Player ${i + 1}`);
     switch (ev.type) {
       case 'throw': {
-        const a = roster[ev.attacker]?.name ?? `P${ev.attacker}`;
-        const v = roster[ev.victim]?.name ?? `P${ev.victim}`;
-        this.push(this.pick(TOSS_LINES).replace('{a}', a).replace('{v}', v));
+        this.push(
+          this.pick(TOSS_LINES).replace('{a}', nameOf(ev.attacker)).replace('{v}', nameOf(ev.victim)),
+        );
         break;
       }
       case 'nearRope': {
-        const v = roster[ev.wrestler]?.name ?? `P${ev.wrestler}`;
-        this.push(this.pick(NEAR_ROPE_LINES).replace('{v}', v));
+        this.push(this.pick(NEAR_ROPE_LINES).replace('{v}', nameOf(ev.wrestler)));
         break;
       }
       case 'eliminated': {
-        const v = roster[ev.wrestler]?.name ?? `P${ev.wrestler}`;
+        const v = nameOf(ev.wrestler);
         if (ev.eliminator === null || ev.eliminator === ev.wrestler) {
           this.push(this.pick(SOLO_ELIM_LINES).replace('{v}', v));
         }
         this.push(
-          this.pick(ELIM_LINES)
-            .replace('{v}', v)
-            .replace('{p}', String(ev.finishingPosition)),
+          this.pick(ELIM_LINES).replace('{v}', v).replace('{p}', String(ev.finishingPosition)),
         );
         break;
       }
       case 'matchEnd': {
-        const w = roster[ev.winner]?.name ?? `P${ev.winner}`;
-        this.push(this.pick(WINNER_LINES).replace('{w}', w));
+        this.push(this.pick(WINNER_LINES).replace('{w}', nameOf(ev.winner)));
         break;
       }
       default:

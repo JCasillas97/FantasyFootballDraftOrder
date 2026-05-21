@@ -19,14 +19,11 @@ const STRIKE_RADIUS_SQ = 32 * 32; // close enough to land a hit
 const ELIMINATION_TOSS_DURATION = 1.0;
 const WANDER_SPEED = 50;
 const ENGAGE_SPEED = 85;
-const VICTIM_PUSH_SPEED = 120;
 const ELIM_VELOCITY = 280;
 const RECOVER_DURATION = 0.18;
 const STUN_DURATION = 0.30;
 /** Per-tick probability a wandering wrestler picks a fight with a nearby opponent. */
-const ENGAGE_PROB = 0.045;
-/** Lookahead seconds before a scheduled elimination during which the gang-up triggers. */
-const DANGER_WINDOW = 4;
+const ENGAGE_PROB = 0.06;
 
 interface MoveDef {
   duration: number;
@@ -185,39 +182,16 @@ export function tick(s: MatchState): void {
   }
 }
 
-function wanderStep(w: Wrestler, s: MatchState, victim: number | null, target: number | null): void {
+function wanderStep(w: Wrestler, s: MatchState, _victim: number | null, _target: number | null): void {
   if (distSq(w.x, w.y, w.wanderX, w.wanderY) < 15 * 15) {
     const p = pickWanderPoint(s.rng);
     w.wanderX = p.x;
     w.wanderY = p.y;
   }
 
-  let steerX = w.wanderX;
-  let steerY = w.wanderY;
-  let speed = WANDER_SPEED;
-  const isVictim = victim !== null && victim === w.id;
-  const tilElim = target !== null ? target - s.t : Infinity;
-  if (isVictim && tilElim < DANGER_WINDOW + 1) {
-    // Scheduled victim drifts toward the nearest rope so the finisher lands
-    // visually near the edge.
-    const dir = toNearestRope(w.x, w.y);
-    steerX = w.x + dir.dx * 200;
-    steerY = w.y + dir.dy * 200;
-    speed = VICTIM_PUSH_SPEED;
-  }
-
-  // Gang-up: in the danger window, other wrestlers swarm the victim. This is
-  // cosmetic — the scheduler still owns who gets eliminated.
-  if (!isVictim && victim !== null && tilElim < DANGER_WINDOW) {
-    const v = s.wrestlers[victim];
-    if (isActive(v) && distSq(w.x, w.y, v.x, v.y) < 260 * 260) {
-      w.state = 'engaging';
-      w.targetId = victim;
-      return;
-    }
-  }
-
-  // Background brawls. Pick a nearby opponent and start a fight.
+  // Pure independent brawling. Every wrestler picks fights with whoever
+  // happens to be nearby — no global "victim" attractor — so the doomed
+  // wrestler isn't telegraphed by everyone walking toward them.
   if (s.rng.next() < ENGAGE_PROB) {
     const opponent = nearestOther(w, s.wrestlers);
     if (opponent && distSq(w.x, w.y, opponent.x, opponent.y) < 180 * 180) {
@@ -227,7 +201,7 @@ function wanderStep(w: Wrestler, s: MatchState, victim: number | null, target: n
     }
   }
 
-  steerToward(w, steerX, steerY, speed);
+  steerToward(w, w.wanderX, w.wanderY, WANDER_SPEED);
 }
 
 function engageStep(w: Wrestler, s: MatchState): void {

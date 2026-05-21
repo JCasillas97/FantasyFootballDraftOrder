@@ -1,11 +1,8 @@
 /**
- * Wrestler state + state machine. For Phase 1 the visual behavior is simple
- * (wander, engage, get tossed). The full attack/stun/recover sub-states are
- * filled in during Phase 3 when sprite animations need timing hooks.
- *
- * The hard invariant: state transitions never *decide* an elimination. The
- * scheduler picks the victim ahead of time; the state machine only performs
- * the elimination when the scheduler points at this wrestler.
+ * Wrestler state + state machine. The hard invariant: state transitions never
+ * *decide* an elimination. The scheduler picks the victim ahead of time; the
+ * state machine only performs the elimination when the scheduler points at
+ * this wrestler. Combat varieties below are purely cosmetic.
  */
 export type WrestlerState =
   | 'wandering'
@@ -16,6 +13,16 @@ export type WrestlerState =
   | 'nearRope'
   | 'beingEliminated'
   | 'eliminated';
+
+export type AttackMove =
+  | 'punch'
+  | 'kick'
+  | 'tackle'
+  | 'clothesline'
+  | 'topRope'
+  | 'splash'
+  | 'grapple'
+  | 'irishWhip';
 
 export interface Wrestler {
   /** Index into the roster — stable for the whole match. */
@@ -35,6 +42,10 @@ export interface Wrestler {
   wanderY: number;
   /** Render hint: how far through an animation/toss the wrestler is, 0..1. */
   animPhase: number;
+  /** Move being performed in the current `attacking` state. */
+  attackMove: AttackMove | null;
+  /** True when this attack is the scripted elimination finisher. */
+  isFinisher: boolean;
 }
 
 export function makeWrestler(id: number, x: number, y: number, facing: -1 | 1): Wrestler {
@@ -51,6 +62,8 @@ export function makeWrestler(id: number, x: number, y: number, facing: -1 | 1): 
     wanderX: x,
     wanderY: y,
     animPhase: 0,
+    attackMove: null,
+    isFinisher: false,
   };
 }
 

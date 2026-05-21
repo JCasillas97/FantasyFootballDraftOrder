@@ -1,3 +1,5 @@
+import type { AttackMove } from './wrestler';
+
 /**
  * Engine event types. The match engine emits these as the sim runs; UI,
  * commentary, audio, and effects all subscribe to the same stream. Keeping
@@ -10,11 +12,3 @@ export type GameEvent =
   | { type: 'nearRope'; wrestler: number }
   | { type: 'eliminated'; wrestler: number; eliminator: number | null; finishingPosition: number }
   | { type: 'matchEnd'; winner: number; eliminationOrder: number[] };
-
-export type AttackMove =
-  | 'punch'
-  | 'clothesline'
-  | 'grapple'
-  | 'irishWhip'
-  | 'topRope'
-  | 'splash';

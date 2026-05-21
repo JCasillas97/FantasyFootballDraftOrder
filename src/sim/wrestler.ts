@@ -48,6 +48,8 @@ export interface Wrestler {
   isFinisher: boolean;
   /** True when the wrestler is laid out on the mat (extended stun). */
   downed: boolean;
+  /** Vertical render offset (climb height etc). Not part of physics. */
+  renderYOffset: number;
 }
 
 export function makeWrestler(id: number, x: number, y: number, facing: -1 | 1): Wrestler {
@@ -67,6 +69,7 @@ export function makeWrestler(id: number, x: number, y: number, facing: -1 | 1): 
     attackMove: null,
     isFinisher: false,
     downed: false,
+    renderYOffset: 0,
   };
 }
 

@@ -10,7 +10,17 @@ import {
 } from './scheduler';
 import { type Wrestler, type AttackMove, makeWrestler, isActive } from './wrestler';
 import { nearestOther, pickWanderPoint, startingPositions } from './ai';
-import { distSq, clampToRing, clampToCanvas, toNearestRope } from './physics';
+import {
+  distSq,
+  clampToRing,
+  clampToCanvas,
+  toNearestRope,
+  ringLeft,
+  ringRight,
+  ringTop,
+  ringBottom,
+  PLAYABLE_INSET,
+} from './physics';
 import { type GameEvent } from './events';
 
 export const TICK_HZ = 60;
@@ -65,6 +75,33 @@ const REGULAR_MOVES: readonly AttackMove[] = [
 /** Moves that lay the victim flat instead of a quick stun. */
 const BIG_HITS: ReadonlySet<AttackMove> = new Set(['tackle', 'splash', 'topRope', 'clothesline']);
 const DOWNED_DURATION = 1.4;
+const SPOTLIGHT_DOWNED_DURATION = 3.0;
+
+/**
+ * The Spotlight is a guaranteed mid-match showstopper. Time pauses, every
+ * other wrestler stops moving, one wrestler walks to the nearest turnbuckle,
+ * climbs up, hangs there, leaps across the ring, and crashes onto a
+ * pre-chosen victim. Sequence stages drive both physics and commentary.
+ */
+type SpotlightStage = 'pending' | 'walk' | 'climb' | 'hang' | 'leap' | 'recover' | 'done';
+interface SpotlightState {
+  scheduledTime: number;
+  actor: number;
+  target: number;
+  stage: SpotlightStage;
+  stageTimer: number;
+  cornerX: number;
+  cornerY: number;
+  leapStartX: number;
+  leapStartY: number;
+}
+const SPOTLIGHT_WALK_MAX = 2.0;
+const SPOTLIGHT_CLIMB_DURATION = 0.7;
+const SPOTLIGHT_HANG_DURATION = 0.9;
+const SPOTLIGHT_LEAP_DURATION = 1.0;
+const SPOTLIGHT_RECOVER_DURATION = 0.4;
+const SPOTLIGHT_CLIMB_HEIGHT = 56;
+const SPOTLIGHT_WALK_SPEED = 110;
 const FINISHER_MOVES: readonly AttackMove[] = [
   'topRope',
   'splash',
@@ -82,6 +119,8 @@ export interface MatchState {
   eliminationLog: number[];
   /** Events emitted since the last drainEvents() call. */
   pendingEvents: GameEvent[];
+  /** Mid-match showstopper sequence (null = none planned). */
+  spotlight: SpotlightState | null;
 }
 
 export interface MatchConfig {
@@ -109,6 +148,48 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
     finished: false,
     eliminationLog: [],
     pendingEvents: [{ type: 'matchStart', seed }],
+    spotlight: planSpotlight(schedule.eliminationOrder, schedule.targets, schedule.duration, rng),
+  };
+}
+
+/**
+ * Choose the spotlight participants and time at match start so the moment
+ * is reproducible from the seed. Actor and target are drawn from wrestlers
+ * who survive past the midpoint elimination, so they're guaranteed alive
+ * when the spotlight fires.
+ */
+function planSpotlight(
+  eliminationOrder: readonly number[],
+  targets: readonly number[],
+  duration: number,
+  rng: Rng,
+): SpotlightState | null {
+  if (eliminationOrder.length < 4 || targets.length < 2) return null;
+  const midIdx = Math.floor(eliminationOrder.length / 2);
+  // Survivor pool: those eliminated at or after midIdx, plus the winner.
+  const survivorPool = eliminationOrder.slice(midIdx);
+  if (survivorPool.length < 2) return null;
+  const actorIdx = rng.nextInt(survivorPool.length);
+  let targetIdx = rng.nextInt(survivorPool.length);
+  while (targetIdx === actorIdx) targetIdx = rng.nextInt(survivorPool.length);
+  const actor = survivorPool[actorIdx];
+  const target = survivorPool[targetIdx];
+  // Fire between 35-48% of duration — guarantees we land before the midpoint
+  // elimination at ~50%.
+  const midElimTime = targets[midIdx];
+  const scheduledTime = midElimTime * (0.65 + rng.next() * 0.25);
+  // Fallback to 40% of duration if the math is off (shouldn't happen).
+  const safeTime = Math.min(scheduledTime, duration * 0.48);
+  return {
+    scheduledTime: safeTime,
+    actor,
+    target,
+    stage: 'pending',
+    stageTimer: 0,
+    cornerX: 0,
+    cornerY: 0,
+    leapStartX: 0,
+    leapStartY: 0,
   };
 }
 
@@ -118,6 +199,31 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
  */
 export function tick(s: MatchState): void {
   if (s.finished) return;
+  // Spotlight handling: if an active sequence is in progress, time is paused
+  // and the choreography drives the actor/target. Other wrestlers stand still.
+  if (s.spotlight && s.spotlight.stage !== 'pending' && s.spotlight.stage !== 'done') {
+    spotlightTick(s);
+    return;
+  }
+  // Time to fire the spotlight? Pre-check participants are still alive and
+  // not mid-elimination.
+  if (
+    s.spotlight &&
+    s.spotlight.stage === 'pending' &&
+    s.t >= s.spotlight.scheduledTime &&
+    !isFinisherInProgress(s, s.spotlight.actor) &&
+    !isFinisherInProgress(s, s.spotlight.target)
+  ) {
+    const a = s.wrestlers[s.spotlight.actor];
+    const v = s.wrestlers[s.spotlight.target];
+    if (isActive(a) && isActive(v) && a.state !== 'beingEliminated' && v.state !== 'beingEliminated') {
+      beginSpotlight(s);
+      return;
+    }
+    // Participant unavailable (rare) — give up on the spotlight.
+    s.spotlight.stage = 'done';
+  }
+
   s.t += TICK_DT;
 
   const victim = currentVictim(s.scheduler);
@@ -484,6 +590,158 @@ export function drainEvents(s: MatchState): GameEvent[] {
   const out = s.pendingEvents;
   s.pendingEvents = [];
   return out;
+}
+
+// ---------------- Spotlight choreography ----------------
+
+function beginSpotlight(s: MatchState): void {
+  const sp = s.spotlight!;
+  const actor = s.wrestlers[sp.actor];
+  // Pick the nearest turnbuckle (interior corner).
+  const corners: Array<{ x: number; y: number }> = [
+    { x: ringLeft() + PLAYABLE_INSET, y: ringTop() + PLAYABLE_INSET },
+    { x: ringRight() - PLAYABLE_INSET, y: ringTop() + PLAYABLE_INSET },
+    { x: ringLeft() + PLAYABLE_INSET, y: ringBottom() - PLAYABLE_INSET },
+    { x: ringRight() - PLAYABLE_INSET, y: ringBottom() - PLAYABLE_INSET },
+  ];
+  let best = corners[0];
+  let bestD = Infinity;
+  for (const c of corners) {
+    const d = distSq(actor.x, actor.y, c.x, c.y);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  sp.cornerX = best.x;
+  sp.cornerY = best.y;
+  sp.stage = 'walk';
+  sp.stageTimer = SPOTLIGHT_WALK_MAX;
+
+  // Reset everyone else's velocity and clear any timed combat states so the
+  // ring is visually still while the spotlight runs.
+  for (const w of s.wrestlers) {
+    if (w.id === sp.actor || w.id === sp.target) continue;
+    if (!isActive(w)) continue;
+    if (w.state === 'beingEliminated') continue;
+    w.vx = 0;
+    w.vy = 0;
+    w.state = 'wandering';
+    w.targetId = null;
+    w.attackMove = null;
+    w.isFinisher = false;
+    w.downed = false;
+    w.stateTimer = 0;
+  }
+  // Target also stands still and faces the actor.
+  const target = s.wrestlers[sp.target];
+  target.state = 'wandering';
+  target.vx = 0;
+  target.vy = 0;
+  target.facing = actor.x > target.x ? 1 : -1;
+  // Actor starts walking toward the corner.
+  actor.state = 'wandering';
+  actor.targetId = null;
+  actor.attackMove = null;
+}
+
+function spotlightTick(s: MatchState): void {
+  const sp = s.spotlight!;
+  const actor = s.wrestlers[sp.actor];
+  const target = s.wrestlers[sp.target];
+  sp.stageTimer -= TICK_DT;
+
+  switch (sp.stage) {
+    case 'walk': {
+      const dx = sp.cornerX - actor.x;
+      const dy = sp.cornerY - actor.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 6 || sp.stageTimer <= 0) {
+        actor.x = sp.cornerX;
+        actor.y = sp.cornerY;
+        actor.vx = 0;
+        actor.vy = 0;
+        sp.stage = 'climb';
+        sp.stageTimer = SPOTLIGHT_CLIMB_DURATION;
+        s.pendingEvents.push({ type: 'spotlight', stage: 'climb', actor: sp.actor, target: sp.target });
+      } else {
+        actor.vx = (dx / dist) * SPOTLIGHT_WALK_SPEED;
+        actor.vy = (dy / dist) * SPOTLIGHT_WALK_SPEED;
+        actor.x += actor.vx * TICK_DT;
+        actor.y += actor.vy * TICK_DT;
+        actor.facing = dx < 0 ? -1 : 1;
+      }
+      break;
+    }
+    case 'climb': {
+      const p = 1 - Math.max(0, sp.stageTimer / SPOTLIGHT_CLIMB_DURATION);
+      actor.renderYOffset = SPOTLIGHT_CLIMB_HEIGHT * p;
+      // Face the target while climbing.
+      actor.facing = target.x < actor.x ? -1 : 1;
+      if (sp.stageTimer <= 0) {
+        actor.renderYOffset = SPOTLIGHT_CLIMB_HEIGHT;
+        sp.stage = 'hang';
+        sp.stageTimer = SPOTLIGHT_HANG_DURATION;
+      }
+      break;
+    }
+    case 'hang': {
+      actor.renderYOffset = SPOTLIGHT_CLIMB_HEIGHT;
+      if (sp.stageTimer <= 0) {
+        sp.leapStartX = actor.x;
+        sp.leapStartY = actor.y;
+        sp.stage = 'leap';
+        sp.stageTimer = SPOTLIGHT_LEAP_DURATION;
+        // Actor now flies — show top-rope attack pose.
+        actor.state = 'attacking';
+        actor.attackMove = 'topRope';
+        actor.isFinisher = false;
+        actor.animPhase = 0;
+        s.pendingEvents.push({ type: 'spotlight', stage: 'leap', actor: sp.actor, target: sp.target });
+      }
+      break;
+    }
+    case 'leap': {
+      const phase = 1 - Math.max(0, sp.stageTimer / SPOTLIGHT_LEAP_DURATION);
+      actor.animPhase = phase;
+      // Interpolate horizontal toward target.
+      actor.x = sp.leapStartX + (target.x - sp.leapStartX) * phase;
+      actor.y = sp.leapStartY + (target.y - sp.leapStartY) * phase;
+      // Render Y offset: start high (on turnbuckle), arc up briefly, then
+      // come crashing down to 0 at impact.
+      const arc = Math.sin(phase * Math.PI) * 40;
+      actor.renderYOffset = SPOTLIGHT_CLIMB_HEIGHT * (1 - phase) + arc;
+      actor.facing = target.x < sp.leapStartX ? -1 : 1;
+      if (sp.stageTimer <= 0) {
+        // IMPACT.
+        actor.x = target.x;
+        actor.y = target.y;
+        actor.renderYOffset = 0;
+        actor.state = 'recovering';
+        actor.stateTimer = SPOTLIGHT_RECOVER_DURATION;
+        actor.attackMove = null;
+        actor.animPhase = 0;
+        target.state = 'stunned';
+        target.downed = true;
+        target.stateTimer = SPOTLIGHT_DOWNED_DURATION;
+        target.vx = 0;
+        target.vy = 0;
+        s.pendingEvents.push({ type: 'spotlight', stage: 'impact', actor: sp.actor, target: sp.target });
+        s.pendingEvents.push({ type: 'hit', attacker: sp.actor, victim: sp.target, move: 'topRope' });
+        sp.stage = 'recover';
+        sp.stageTimer = SPOTLIGHT_RECOVER_DURATION;
+      }
+      break;
+    }
+    case 'recover': {
+      if (sp.stageTimer <= 0) {
+        sp.stage = 'done';
+      }
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 /**

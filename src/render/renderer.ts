@@ -171,10 +171,17 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
       break;
     case 'attacking':
       // Pick the right animation row based on the move type so kicks look
-      // like kicks and top-rope dives actually look airborne.
+      // like kicks, tackles look like spears, and top-rope dives look
+      // airborne.
       if (w.attackMove === 'kick') {
         anim = Animation.Kick;
-      } else if (w.attackMove === 'topRope' || w.attackMove === 'splash') {
+      } else if (
+        w.attackMove === 'topRope' ||
+        w.attackMove === 'splash' ||
+        w.attackMove === 'tackle'
+      ) {
+        // Tackle reuses the dive pose (forward Superman) but without the
+        // airborne Y arc — same visual silhouette, on the ground.
         anim = Animation.TopRope;
       } else {
         anim = Animation.Attack;

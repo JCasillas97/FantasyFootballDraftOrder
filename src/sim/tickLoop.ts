@@ -38,16 +38,27 @@ interface MoveDef {
  */
 const MOVE_DEFS: Record<AttackMove, MoveDef> = {
   punch: { duration: 0.26, hitFrame: 0.14, impulse: 80, chargeSpeed: 0 },
-  kick: { duration: 0.34, hitFrame: 0.20, impulse: 130, chargeSpeed: 0 },
-  tackle: { duration: 0.46, hitFrame: 0.28, impulse: 170, chargeSpeed: 120 },
-  clothesline: { duration: 0.42, hitFrame: 0.24, impulse: 200, chargeSpeed: 90 },
+  kick: { duration: 0.52, hitFrame: 0.30, impulse: 130, chargeSpeed: 0 },
+  tackle: { duration: 0.58, hitFrame: 0.36, impulse: 170, chargeSpeed: 130 },
+  clothesline: { duration: 0.44, hitFrame: 0.26, impulse: 200, chargeSpeed: 90 },
   grapple: { duration: 0.30, hitFrame: 0.18, impulse: 60, chargeSpeed: 0 },
   irishWhip: { duration: 0.34, hitFrame: 0.20, impulse: 220, chargeSpeed: 0 },
-  topRope: { duration: 0.70, hitFrame: 0.55, impulse: 280, chargeSpeed: 60 },
-  splash: { duration: 0.55, hitFrame: 0.40, impulse: 260, chargeSpeed: 40 },
+  topRope: { duration: 0.85, hitFrame: 0.65, impulse: 280, chargeSpeed: 80 },
+  splash: { duration: 0.75, hitFrame: 0.55, impulse: 260, chargeSpeed: 70 },
 };
 
-const REGULAR_MOVES: readonly AttackMove[] = ['punch', 'punch', 'kick', 'tackle', 'clothesline'];
+// Punches drop a bit (3 → 2) and the showier moves are weighted up so each
+// match reliably shows kicks, tackles, and at least one top-rope dive.
+const REGULAR_MOVES: readonly AttackMove[] = [
+  'punch',
+  'punch',
+  'kick',
+  'kick',
+  'tackle',
+  'tackle',
+  'clothesline',
+  'splash',
+];
 const FINISHER_MOVES: readonly AttackMove[] = [
   'topRope',
   'splash',
@@ -268,10 +279,24 @@ function attackStep(w: Wrestler, s: MatchState): void {
       const dy = t.y - w.y;
       const len = Math.hypot(dx, dy) || 1;
       if (w.isFinisher) {
-        // The scripted elimination — launch the victim out of the ring.
-        const dir = toNearestRope(t.x, t.y);
-        t.vx = dir.dx * ELIM_VELOCITY;
-        t.vy = dir.dy * ELIM_VELOCITY - 80;
+        // Launch direction: blend attacker→victim direction with nearest-rope
+        // bias and a small random angular jitter. The result is a varied,
+        // believable angle — straight axes only happen by coincidence.
+        const rope = toNearestRope(t.x, t.y);
+        const awayLen = Math.hypot(dx, dy) || 1;
+        const awayDx = dx / awayLen;
+        const awayDy = dy / awayLen;
+        let lx = awayDx * 0.7 + rope.dx * 0.6;
+        let ly = awayDy * 0.7 + rope.dy * 0.6;
+        // ±20° random rotation for extra variety.
+        const jitter = (s.rng.next() - 0.5) * (Math.PI / 4.5);
+        const cos = Math.cos(jitter);
+        const sin = Math.sin(jitter);
+        const rotX = lx * cos - ly * sin;
+        const rotY = lx * sin + ly * cos;
+        const lLen = Math.hypot(rotX, rotY) || 1;
+        t.vx = (rotX / lLen) * ELIM_VELOCITY;
+        t.vy = (rotY / lLen) * ELIM_VELOCITY - 90; // upward arc on top of the launch
         t.state = 'beingEliminated';
         t.stateTimer = ELIMINATION_TOSS_DURATION;
         t.animPhase = 0;
@@ -333,13 +358,18 @@ function triggerFinisher(s: MatchState, v: Wrestler): void {
   // animation). Fall back to nearest-active. Last resort: direct toss.
   const eliminator = pickEliminator(s, v);
   if (!eliminator) {
-    // Nobody nearby — just launch the victim. Rare.
-    const dir = toNearestRope(v.x, v.y);
+    // Nobody nearby — just launch the victim at a varied angle. Rare.
+    const rope = toNearestRope(v.x, v.y);
+    const jitter = (s.rng.next() - 0.5) * (Math.PI / 3);
+    const cos = Math.cos(jitter);
+    const sin = Math.sin(jitter);
+    const lx = rope.dx * cos - rope.dy * sin;
+    const ly = rope.dx * sin + rope.dy * cos;
     v.state = 'beingEliminated';
     v.stateTimer = ELIMINATION_TOSS_DURATION;
     v.animPhase = 0;
-    v.vx = dir.dx * ELIM_VELOCITY;
-    v.vy = dir.dy * ELIM_VELOCITY - 60;
+    v.vx = lx * ELIM_VELOCITY;
+    v.vy = ly * ELIM_VELOCITY - 80;
     s.pendingEvents.push({ type: 'throw', attacker: v.id, victim: v.id });
     return;
   }

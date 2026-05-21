@@ -88,11 +88,12 @@ function getPose(anim: Animation, frame: number): Pose {
     case Animation.Attack:
       return { ...base, armExtended: frame === 1 || frame === 2 };
     case Animation.Kick:
-      // Wind up frame 0, leg extends frame 1-2, return frame 3.
+      // Hold the full kick pose across most of the animation so it actually
+      // reads visually before the cycle ends.
       return {
         ...base,
-        kickExtended: frame === 0 ? 0 : frame === 1 ? 0.6 : frame === 2 ? 1 : 0.3,
-        bodyBob: frame === 1 || frame === 2 ? -1 : 0,
+        kickExtended: frame === 0 ? 0.4 : 1,
+        bodyBob: frame === 0 ? 0 : -1,
       };
     case Animation.TopRope:
       // Forward-diving pose. Body tilts forward, arms thrust out, legs back.

@@ -15,12 +15,19 @@ import { type GameEvent } from './events';
 
 export const TICK_HZ = 60;
 export const TICK_DT = 1 / TICK_HZ;
-const ENGAGE_RADIUS_SQ = 60 * 60;
-const ELIMINATION_TOSS_DURATION = 1.2; // seconds for the over-top-rope animation
-const WANDER_SPEED = 35; // px/sec
-const ENGAGE_SPEED = 55;
-const VICTIM_PUSH_SPEED = 90;
-const ELIM_VELOCITY = 220;
+const STRIKE_RADIUS_SQ = 28 * 28; // close enough to land a punch
+const ELIMINATION_TOSS_DURATION = 1.0;
+const WANDER_SPEED = 45;
+const ENGAGE_SPEED = 70;
+const VICTIM_PUSH_SPEED = 110;
+const ELIM_VELOCITY = 260;
+const ATTACK_DURATION = 0.32;
+const ATTACK_HIT_FRAME = 0.15;
+const RECOVER_DURATION = 0.22;
+const STUN_DURATION = 0.35;
+const HIT_IMPULSE = 90;
+/** Per-tick probability that a wandering wrestler picks a new opponent. */
+const ENGAGE_PROB = 0.012;
 
 export interface MatchState {
   t: number;
@@ -88,10 +95,16 @@ export function tick(s: MatchState): void {
         eliminateStep(w, s);
         break;
       case 'attacking':
+        attackStep(w, s);
+        break;
       case 'stunned':
+        stunStep(w);
+        break;
       case 'recovering':
+        recoverStep(w);
+        break;
       case 'nearRope':
-        // Phase 1 doesn't enter these states — placeholder for Phase 3.
+        // Not entered in current sim; collapse to wandering.
         w.state = 'wandering';
         break;
       case 'eliminated':
@@ -147,30 +160,41 @@ function wanderStep(w: Wrestler, s: MatchState, victim: number | null, target: n
   }
 
   // If this wrestler IS the current victim and the elimination window is
-  // approaching, steer toward the nearest rope (the scheduler "nudge").
-  // The eliminator role is handled implicitly: any nearby wrestler counts.
+  // approaching, steer toward the nearest rope. The eliminator role is
+  // cosmetic: whichever wrestler happens to be near at toss time.
   let steerX = w.wanderX;
   let steerY = w.wanderY;
   let speed = WANDER_SPEED;
-  if (victim !== null && target !== null && victim === w.id) {
-    const timeUntil = target - s.t;
-    if (timeUntil < 10) {
-      // Pull toward the rope band over the last ~10s.
-      const dir = toNearestRope(w.x, w.y);
-      steerX = w.x + dir.dx * 200;
-      steerY = w.y + dir.dy * 200;
-      speed = VICTIM_PUSH_SPEED;
+  const isVictim = victim !== null && victim === w.id;
+  const tilElim = target !== null ? target - s.t : Infinity;
+  if (isVictim && tilElim < 5) {
+    const dir = toNearestRope(w.x, w.y);
+    steerX = w.x + dir.dx * 200;
+    steerY = w.y + dir.dy * 200;
+    speed = VICTIM_PUSH_SPEED;
+  }
+
+  // Non-victims gravitate toward the current victim near the toss window so
+  // they're nearby when the elimination triggers (this is what makes the
+  // eliminator role land on a believable nearby wrestler, not someone across
+  // the ring). This nudge does NOT change WHO is eliminated.
+  if (!isVictim && victim !== null && tilElim < 4) {
+    const v = s.wrestlers[victim];
+    if (isActive(v) && distSq(w.x, w.y, v.x, v.y) < 220 * 220) {
+      w.state = 'engaging';
+      w.targetId = victim;
+      return;
     }
   }
 
-  // If a non-victim is near the current victim, they can engage them — this
-  // produces the visual "crowding around the loser" effect without leaking
-  // any bias into who actually loses.
-  if (victim !== null && victim !== w.id && Math.abs(target! - s.t) < 8) {
-    const v = s.wrestlers[victim];
-    if (isActive(v) && distSq(w.x, w.y, v.x, v.y) < 200 * 200) {
+  // Background combat: every so often a wandering wrestler picks a fight
+  // with a nearby active opponent. Keeps the ring active even when no
+  // elimination is imminent.
+  if (s.rng.next() < ENGAGE_PROB) {
+    const opponent = nearestOther(w, s.wrestlers);
+    if (opponent && distSq(w.x, w.y, opponent.x, opponent.y) < 180 * 180) {
       w.state = 'engaging';
-      w.targetId = victim;
+      w.targetId = opponent.id;
       return;
     }
   }
@@ -184,20 +208,69 @@ function engageStep(w: Wrestler, s: MatchState): void {
     return;
   }
   const t = s.wrestlers[w.targetId];
-  if (!isActive(t)) {
+  if (!isActive(t) || t.state === 'beingEliminated' || t.state === 'eliminated') {
     w.state = 'wandering';
     w.targetId = null;
     return;
   }
-  // If close enough, "engage" by hovering near the target. No real attack
-  // in Phase 1 — attacks come in Phase 3 with animation hooks.
-  if (distSq(w.x, w.y, t.x, t.y) < ENGAGE_RADIUS_SQ) {
-    w.vx *= 0.6;
-    w.vy *= 0.6;
-    w.facing = t.x < w.x ? -1 : 1;
+  const d2 = distSq(w.x, w.y, t.x, t.y);
+  w.facing = t.x < w.x ? -1 : 1;
+  if (d2 < STRIKE_RADIUS_SQ) {
+    // In strike range — wind up an attack.
+    w.state = 'attacking';
+    w.stateTimer = ATTACK_DURATION;
+    w.animPhase = 0;
+    w.vx = 0;
+    w.vy = 0;
     return;
   }
   steerToward(w, t.x, t.y, ENGAGE_SPEED);
+}
+
+function attackStep(w: Wrestler, s: MatchState): void {
+  const wasAbove = w.stateTimer;
+  w.stateTimer -= TICK_DT;
+  w.animPhase = 1 - w.stateTimer / ATTACK_DURATION;
+  // Hit frame: fires once when timer crosses the hit threshold.
+  const hitThreshold = ATTACK_DURATION - ATTACK_HIT_FRAME;
+  if (wasAbove > hitThreshold && w.stateTimer <= hitThreshold) {
+    const t = w.targetId !== null ? s.wrestlers[w.targetId] : null;
+    if (t && isActive(t) && t.state !== 'beingEliminated') {
+      // Apply impulse to victim (push them away from attacker).
+      const dx = t.x - w.x;
+      const dy = t.y - w.y;
+      const len = Math.hypot(dx, dy) || 1;
+      t.vx = (dx / len) * HIT_IMPULSE;
+      t.vy = (dy / len) * HIT_IMPULSE;
+      t.state = 'stunned';
+      t.stateTimer = STUN_DURATION;
+      s.pendingEvents.push({ type: 'hit', attacker: w.id, victim: t.id, move: 'punch' });
+    }
+  }
+  if (w.stateTimer <= 0) {
+    w.state = 'recovering';
+    w.stateTimer = RECOVER_DURATION;
+  }
+}
+
+function stunStep(w: Wrestler): void {
+  w.stateTimer -= TICK_DT;
+  // Drift with residual velocity, no AI input. Damping handled by integration.
+  w.vx *= 0.94;
+  w.vy *= 0.94;
+  if (w.stateTimer <= 0) {
+    w.state = 'wandering';
+  }
+}
+
+function recoverStep(w: Wrestler): void {
+  w.stateTimer -= TICK_DT;
+  w.vx *= 0.85;
+  w.vy *= 0.85;
+  if (w.stateTimer <= 0) {
+    w.state = 'wandering';
+    w.targetId = null;
+  }
 }
 
 function steerToward(w: Wrestler, tx: number, ty: number, speed: number): void {

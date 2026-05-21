@@ -42,6 +42,23 @@ const WINNER_LINES = [
   '{w} is the LAST ONE STANDING. Number one overall.',
 ];
 
+const SPOTLIGHT_CLIMB_LINES = [
+  '{a} is going UP TOP!',
+  'Wait — {a} is climbing the turnbuckle!',
+  "{a}'s heading to the top rope! THE CROWD IS ON THEIR FEET!",
+];
+const SPOTLIGHT_LEAP_LINES = [
+  'OH MY GOD, {a} IS FLYING!',
+  '{a} LEAPS OFF THE TOP!',
+  "{a} TAKES TO THE SKY!",
+];
+const SPOTLIGHT_IMPACT_LINES = [
+  'DEVASTATING! {a} CRUSHES {v} FROM THE TOP ROPE!',
+  '{a} BURIES {v} INTO THE MAT!',
+  'THE WHOLE RING SHAKES! {a} just folded {v} in half!',
+  'GOOD GOD! {v} is OUT COLD after that splash from {a}!',
+];
+
 // Move-specific hit flavor. Only a fraction of hits log a line (most stay
 // silent) so the log doesn't become a wall of text in a 45-second match.
 const HIT_LINES: Record<AttackMove, string[]> = {
@@ -124,6 +141,16 @@ export class CommentaryStream {
         this.push(
           this.pick(ELIM_LINES).replace('{v}', v).replace('{p}', String(ev.finishingPosition)),
         );
+        break;
+      }
+      case 'spotlight': {
+        const a = nameOf(ev.actor);
+        const v = nameOf(ev.target);
+        let lines: readonly string[];
+        if (ev.stage === 'climb') lines = SPOTLIGHT_CLIMB_LINES;
+        else if (ev.stage === 'leap') lines = SPOTLIGHT_LEAP_LINES;
+        else lines = SPOTLIGHT_IMPACT_LINES;
+        this.push(this.pick(lines).replace('{a}', a).replace('{v}', v));
         break;
       }
       case 'matchEnd': {

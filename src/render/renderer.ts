@@ -114,7 +114,8 @@ function drawWrestlers(
     if (!sheet) continue;
 
     const drawX = Math.round(w.x - DRAW_W / 2);
-    const drawY = Math.round(w.y - DRAW_H + 4 + airborneOffset(w));
+    // renderYOffset is positive = higher on screen (e.g., climbed turnbuckle).
+    const drawY = Math.round(w.y - DRAW_H + 4 + airborneOffset(w) - w.renderYOffset);
 
     if (w.state === 'eliminated') {
       ctx.globalAlpha = 0.5;

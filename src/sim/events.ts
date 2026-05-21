@@ -11,4 +11,5 @@ export type GameEvent =
   | { type: 'throw'; attacker: number; victim: number }
   | { type: 'nearRope'; wrestler: number }
   | { type: 'eliminated'; wrestler: number; eliminator: number | null; finishingPosition: number }
+  | { type: 'spotlight'; stage: 'climb' | 'leap' | 'impact'; actor: number; target: number }
   | { type: 'matchEnd'; winner: number; eliminationOrder: number[] };

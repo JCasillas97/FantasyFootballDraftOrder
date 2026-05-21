@@ -214,9 +214,13 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
     // Hold the dive pose for the whole airborne phase.
     frame = 0;
   } else {
+    // Idle/Walk cycle is driven by wall-clock so wrestlers visibly animate
+    // (idle bob, walk shuffle) even while the sim time is paused during
+    // the spotlight sequence. Visual-only — doesn't affect outcomes.
+    const wallSec = typeof performance !== 'undefined' ? performance.now() / 1000 : t;
     const cycleSec = anim === Animation.Walk ? 0.4 : 0.8;
     const offset = w.id * 0.05;
-    frame = Math.floor(((t + offset) / cycleSec) * SPRITE_COLS) % SPRITE_COLS;
+    frame = Math.floor(((wallSec + offset) / cycleSec) * SPRITE_COLS) % SPRITE_COLS;
   }
   return { anim, frame };
 }

@@ -7,6 +7,7 @@ import { composeAvatarSheet } from '../avatar/compose';
 import { startRecording, isRecorderSupported, type RecorderHandle } from '../capture/recorder';
 import { CommentaryStream } from '../sim/commentary';
 import { CommentaryLog } from './CommentaryLog';
+import { DraftPickPanel, type DraftPick } from './DraftPickPanel';
 import { SFX, getCaptureAudioTracks, resumeAudio, setMuted, isMuted } from '../audio/engine';
 
 export function MatchScreen() {
@@ -18,6 +19,12 @@ export function MatchScreen() {
   const setReplaySeed = useAppStore((s) => s.setReplaySeed);
   const [recordingActive, setRecordingActive] = useState(false);
   const [lines, setLines] = useState<readonly string[]>([]);
+  const [picks, setPicks] = useState<readonly DraftPick[]>(() =>
+    Array.from({ length: roster.length }, (_, i) => ({
+      pickNumber: roster.length - i,
+      wrestlerId: null,
+    })),
+  );
   const [muted, setMutedLocal] = useState(isMuted());
 
   useEffect(() => {
@@ -97,6 +104,7 @@ export function MatchScreen() {
       }
 
       const events = drainEvents(state);
+      const pickUpdates: Array<{ pickNumber: number; wrestlerId: number }> = [];
       for (const ev of events) {
         commentary.ingest(ev, roster);
         switch (ev.type) {
@@ -111,13 +119,23 @@ export function MatchScreen() {
             break;
           case 'eliminated':
             SFX.eliminated();
+            pickUpdates.push({ pickNumber: ev.finishingPosition, wrestlerId: ev.wrestler });
             break;
           case 'matchEnd':
             SFX.matchEnd();
+            pickUpdates.push({ pickNumber: 1, wrestlerId: ev.winner });
             break;
         }
       }
       if (events.length > 0) setLines(commentary.all.slice());
+      if (pickUpdates.length > 0) {
+        setPicks((prev) =>
+          prev.map((p) => {
+            const upd = pickUpdates.find((u) => u.pickNumber === p.pickNumber);
+            return upd ? { ...p, wrestlerId: upd.wrestlerId } : p;
+          }),
+        );
+      }
 
       drawFrame(ctx, state, roster, sheets);
 
@@ -148,49 +166,54 @@ export function MatchScreen() {
   };
 
   return (
-    <div style={{ width: '100%', maxWidth: 980, position: 'relative' }}>
-      <canvas
-        ref={canvasRef}
-        width={CANVAS_W}
-        height={CANVAS_H}
-        style={{
-          width: '100%',
-          maxWidth: CANVAS_W,
-          imageRendering: 'pixelated',
-          border: '2px solid var(--border)',
-          display: 'block',
-        }}
-      />
-      {recordingActive && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 12,
-            right: 12,
-            background: 'rgba(0,0,0,0.6)',
-            border: '1px solid var(--accent-hot)',
-            padding: '4px 8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 12,
-            color: 'var(--accent-hot)',
-            fontWeight: 'bold',
-            letterSpacing: 1,
-          }}
-        >
-          <span
+    <div style={{ width: '100%', maxWidth: 1200 }}>
+      <div className="match-grid">
+        <div style={{ position: 'relative' }}>
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_W}
+            height={CANVAS_H}
             style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: 'var(--accent-hot)',
-              animation: 'pulse 1s infinite',
+              width: '100%',
+              maxWidth: CANVAS_W,
+              imageRendering: 'pixelated',
+              border: '2px solid var(--border)',
+              display: 'block',
             }}
           />
-          REC
+          {recordingActive && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 12,
+                right: 12,
+                background: 'rgba(0,0,0,0.6)',
+                border: '1px solid var(--accent-hot)',
+                padding: '4px 8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                color: 'var(--accent-hot)',
+                fontWeight: 'bold',
+                letterSpacing: 1,
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: 'var(--accent-hot)',
+                  animation: 'pulse 1s infinite',
+                }}
+              />
+              REC
+            </div>
+          )}
         </div>
-      )}
+        <DraftPickPanel roster={roster} picks={picks} />
+      </div>
       <div
         style={{
           display: 'flex',

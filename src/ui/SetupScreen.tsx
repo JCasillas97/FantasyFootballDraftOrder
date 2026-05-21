@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { useAppStore, type Player } from '../state/store';
+import { useAppStore, MIN_ROSTER, MAX_ROSTER, type Player } from '../state/store';
 import { AvatarEditor, AvatarPreview } from './AvatarEditor';
 import {
   saveRoster,
@@ -14,6 +14,7 @@ import {
 export function SetupScreen() {
   const roster = useAppStore((s) => s.roster);
   const setRoster = useAppStore((s) => s.setRoster);
+  const setRosterSize = useAppStore((s) => s.setRosterSize);
   const setScreen = useAppStore((s) => s.setScreen);
 
   const [selectedId, setSelectedId] = useState<number>(0);
@@ -85,10 +86,59 @@ export function SetupScreen() {
     setStatusMsg(`Imported "${saved.name}".`);
   };
 
+  const handleResize = (delta: number) => {
+    const next = roster.length + delta;
+    setRosterSize(next);
+    if (selectedId >= next) setSelectedId(Math.max(0, next - 1));
+  };
+
   return (
     <div style={{ width: '100%', maxWidth: 980 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 16,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ color: 'var(--text-dim)' }}>League size:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={() => handleResize(-1)}
+            disabled={roster.length <= MIN_ROSTER}
+            style={{ padding: '4px 12px' }}
+          >
+            −
+          </button>
+          <span
+            style={{
+              minWidth: 56,
+              textAlign: 'center',
+              background: 'var(--bg-panel)',
+              border: '2px solid var(--border)',
+              padding: '6px 12px',
+              fontWeight: 'bold',
+              color: 'var(--accent)',
+            }}
+          >
+            {roster.length} teams
+          </span>
+          <button
+            onClick={() => handleResize(1)}
+            disabled={roster.length >= MAX_ROSTER}
+            style={{ padding: '4px 12px' }}
+          >
+            +
+          </button>
+        </div>
+        <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>
+          {MIN_ROSTER}–{MAX_ROSTER} allowed
+        </span>
+      </div>
       <p style={{ color: 'var(--text-dim)', marginTop: 0 }}>
-        Enter 12 names and customize each wrestler. Click a row to edit.
+        Enter {roster.length} names and customize each wrestler. Click a row to edit.
       </p>
 
       <div className="setup-grid">

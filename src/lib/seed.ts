@@ -1,5 +1,5 @@
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
-import type { Player } from '../state/store';
+import { MIN_ROSTER, MAX_ROSTER, type Player } from '../state/store';
 import type { Avatar } from '../avatar/avatar';
 
 /**
@@ -36,7 +36,8 @@ export function decodeReplay(encoded: string): { roster: Player[]; seed: number 
     const data = JSON.parse(json) as ReplayPayload;
     if (data.v !== 1) return null;
     if (typeof data.s !== 'number') return null;
-    if (!Array.isArray(data.p) || data.p.length !== 12) return null;
+    if (!Array.isArray(data.p)) return null;
+    if (data.p.length < MIN_ROSTER || data.p.length > MAX_ROSTER) return null;
     const roster: Player[] = data.p.map((entry, i) => {
       if (typeof entry.n !== 'string' || typeof entry.a !== 'object') {
         throw new Error('bad payload');

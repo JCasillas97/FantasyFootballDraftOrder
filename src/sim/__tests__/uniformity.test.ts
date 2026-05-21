@@ -71,3 +71,48 @@ describe('end-to-end: sim never diverges from schedule', () => {
     }
   });
 });
+
+describe('engine generalizes across roster sizes', () => {
+  it('finishes cleanly at sizes other than 12', () => {
+    for (const size of [4, 6, 8, 10, 14, 16, 20]) {
+      for (let t = 0; t < 25; t++) {
+        const seed = (t * 2654435761 + size) >>> 0;
+        const result = runToCompletion(seed, size);
+        expect(result.finished, `size=${size} seed=${seed} did not finish`).toBe(true);
+        expect(result.scheduler.schedule.eliminationOrder.length).toBe(size);
+        // Same invariant as the 12-player end-to-end check.
+        const observed = [...result.eliminationLog];
+        const active = result.wrestlers.find((w) => w.state !== 'eliminated');
+        observed.push(active!.id);
+        expect(observed).toEqual(result.scheduler.schedule.eliminationOrder.slice());
+      }
+    }
+  });
+
+  it('shuffle stays uniform at non-12 sizes', () => {
+    const trials = 30_000;
+    for (const size of [4, 8, 16]) {
+      const counts: number[][] = Array.from({ length: size }, () => new Array(size).fill(0));
+      for (let t = 0; t < trials; t++) {
+        const rng = createRng((t * 2654435761 + size) >>> 0);
+        const schedule = buildSchedule(size, rng);
+        schedule.eliminationOrder.forEach((wrestlerId, pos) => {
+          counts[wrestlerId][pos]++;
+        });
+      }
+      const expected = trials / size;
+      // 8% tolerance: the 100k test above already proves tight uniformity for
+      // size 12. This test's job is just to catch a code path that's broken
+      // at non-12 sizes, not to re-prove the math, so we accept more noise.
+      const tolerance = expected * 0.08;
+      for (let id = 0; id < size; id++) {
+        for (let pos = 0; pos < size; pos++) {
+          expect(
+            Math.abs(counts[id][pos] - expected),
+            `size=${size} wrestler=${id} pos=${pos}`,
+          ).toBeLessThan(tolerance);
+        }
+      }
+    }
+  });
+});

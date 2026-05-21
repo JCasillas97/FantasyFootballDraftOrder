@@ -1,4 +1,4 @@
-import type { Player } from '../state/store';
+import { MIN_ROSTER, MAX_ROSTER, type Player } from '../state/store';
 import type { Avatar } from '../avatar/avatar';
 
 /**
@@ -79,7 +79,8 @@ export function importRosterJson(json: string): SavedRoster | null {
   try {
     const data = JSON.parse(json) as SavedRoster;
     if (data.version !== 1) return null;
-    if (!Array.isArray(data.players) || data.players.length !== 12) return null;
+    if (!Array.isArray(data.players)) return null;
+    if (data.players.length < MIN_ROSTER || data.players.length > MAX_ROSTER) return null;
     // Light shape validation.
     for (const p of data.players) {
       if (typeof p.name !== 'string') return null;

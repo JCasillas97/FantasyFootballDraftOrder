@@ -26,6 +26,10 @@ export interface MatchResult {
   recording: RecordingInfo | null;
 }
 
+export const MIN_ROSTER = 4;
+export const MAX_ROSTER = 20;
+export const DEFAULT_ROSTER_SIZE = 12;
+
 interface AppState {
   screen: Screen;
   roster: Player[];
@@ -34,25 +38,42 @@ interface AppState {
   replaySeed: number | null;
   setScreen: (screen: Screen) => void;
   setRoster: (roster: Player[]) => void;
+  setRosterSize: (size: number) => void;
   setResult: (result: MatchResult) => void;
   setReplaySeed: (seed: number | null) => void;
   reset: () => void;
 }
 
-const defaultRoster = (): Player[] =>
-  Array.from({ length: 12 }, (_, i) => ({
+const defaultRoster = (size: number = DEFAULT_ROSTER_SIZE): Player[] =>
+  Array.from({ length: size }, (_, i) => ({
     id: i,
     name: `Player ${i + 1}`,
     avatar: presetAvatar(i),
   }));
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   screen: 'setup',
   roster: defaultRoster(),
   result: null,
   replaySeed: null,
   setScreen: (screen) => set({ screen }),
   setRoster: (roster) => set({ roster }),
+  setRosterSize: (size) => {
+    const clamped = Math.max(MIN_ROSTER, Math.min(MAX_ROSTER, Math.floor(size)));
+    const current = get().roster;
+    if (clamped === current.length) return;
+    if (clamped < current.length) {
+      // Shrinking: keep the first N players, drop the rest.
+      set({ roster: current.slice(0, clamped) });
+    } else {
+      // Growing: append fresh players with preset avatars at the new indices.
+      const extra: Player[] = [];
+      for (let i = current.length; i < clamped; i++) {
+        extra.push({ id: i, name: `Player ${i + 1}`, avatar: presetAvatar(i) });
+      }
+      set({ roster: [...current, ...extra] });
+    }
+  },
   setResult: (result) => set({ result }),
   setReplaySeed: (seed) => set({ replaySeed: seed }),
   reset: () => {

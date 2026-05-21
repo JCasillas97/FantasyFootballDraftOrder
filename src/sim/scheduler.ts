@@ -29,8 +29,11 @@ export function buildSchedule(rosterSize: number, rng: Rng): Schedule {
   const indices = Array.from({ length: rosterSize }, (_, i) => i);
   const eliminationOrder = shuffle(indices, rng);
 
-  // Sample a match duration in [150, 210] seconds (2.5 - 3.5 min) for variety.
-  const duration = 150 + rng.next() * 60;
+  // Scale duration with roster size so each wrestler gets roughly the same
+  // screen time regardless of league size. 12 wrestlers → ~150-210s (the
+  // original target). 6 → ~75-105s. 20 → ~250-350s.
+  const secondsPerWrestler = 12.5 + rng.next() * 5;
+  const duration = rosterSize * secondsPerWrestler;
   const targets = pacingCurve(rosterSize - 1, duration);
 
   return { eliminationOrder, targets, duration };

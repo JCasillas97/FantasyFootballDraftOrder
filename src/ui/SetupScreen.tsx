@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { useAppStore, MIN_ROSTER, MAX_ROSTER, type Player } from '../state/store';
+import { useAppStore, MIN_ROSTER, MAX_ROSTER, displayName, type Player } from '../state/store';
 import { AvatarEditor, AvatarPreview } from './AvatarEditor';
 import {
   saveRoster,
@@ -28,8 +28,6 @@ export function SetupScreen() {
   const updatePlayer = (id: number, patch: Partial<Player>) => {
     setRoster(roster.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   };
-
-  const allNamed = roster.every((p) => p.name.trim().length > 0);
 
   const handleSave = () => {
     const name = saveName.trim();
@@ -175,13 +173,9 @@ export function SetupScreen() {
                 <input
                   type="text"
                   value={p.name}
+                  placeholder={`Player ${i + 1}`}
                   maxLength={16}
                   onClick={(e) => e.stopPropagation()}
-                  onFocus={(e) => {
-                    // Select default "Player N" placeholder so the first
-                    // keystroke replaces it; leave custom names untouched.
-                    if (/^Player \d+$/.test(e.target.value)) e.target.select();
-                  }}
                   onChange={(e) => updatePlayer(p.id, { name: e.target.value })}
                   style={{ flex: 1, fontSize: 12, padding: '4px 6px' }}
                 />
@@ -193,7 +187,7 @@ export function SetupScreen() {
         {/* Editor panel */}
         <div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8 }}>
-            Editing: <span style={{ color: 'var(--text)' }}>{selected.name}</span>
+            Editing: <span style={{ color: 'var(--text)' }}>{displayName(selected)}</span>
           </div>
           <AvatarEditor
             avatar={selected.avatar}
@@ -291,9 +285,7 @@ export function SetupScreen() {
         {statusMsg && <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{statusMsg}</div>}
       </div>
 
-      <button disabled={!allNamed} onClick={() => setScreen('match')}>
-        Start Rumble
-      </button>
+      <button onClick={() => setScreen('match')}>Start Rumble</button>
     </div>
   );
 }

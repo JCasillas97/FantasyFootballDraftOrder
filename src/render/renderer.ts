@@ -1,6 +1,6 @@
 import { RING, ROPE_BAND } from '../sim/physics';
 import type { MatchState } from '../sim/tickLoop';
-import type { Player } from '../state/store';
+import { displayName, type Player } from '../state/store';
 import { Animation, SPRITE_W, SPRITE_H, SPRITE_COLS } from '../avatar/compose';
 import type { Wrestler } from '../sim/wrestler';
 
@@ -146,7 +146,8 @@ function drawWrestlers(
 
     // Name tag for active wrestlers only.
     if (w.state !== 'eliminated') {
-      const name = roster[w.id]?.name ?? `P${w.id}`;
+      const player = roster[w.id];
+      const name = player ? displayName(player) : `Player ${w.id + 1}`;
       ctx.font = 'bold 10px ui-monospace, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

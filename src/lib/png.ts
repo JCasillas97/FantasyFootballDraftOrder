@@ -1,4 +1,4 @@
-import type { MatchResult } from '../state/store';
+import { displayName, type MatchResult } from '../state/store';
 import { composeAvatarSheet, Animation, SPRITE_W, SPRITE_H } from '../avatar/compose';
 
 /**
@@ -90,7 +90,8 @@ export function renderResultsPng(result: MatchResult): Promise<Blob | null> {
       ctx.fillStyle = '#f0f0ff';
       ctx.font = isWinner ? 'bold 18px ui-monospace, monospace' : '16px ui-monospace, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(player?.name ?? `Player ${row.wrestlerId + 1}`, PADDING + 64 + SPRITE_W + 12, y + ROW_HEIGHT / 2);
+      const name = player ? displayName(player, row.wrestlerId) : `Player ${row.wrestlerId + 1}`;
+      ctx.fillText(name, PADDING + 64 + SPRITE_W + 12, y + ROW_HEIGHT / 2);
     });
 
     // Footer

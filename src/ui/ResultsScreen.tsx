@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAppStore } from '../state/store';
+import { useAppStore, displayName } from '../state/store';
 import { downloadBlob } from '../capture/recorder';
 import { AvatarPreview } from './AvatarEditor';
 import { renderResultsPng, copyBlobToClipboard } from '../lib/png';
@@ -112,7 +112,7 @@ export function ResultsScreen() {
                 #{row.pickNumber}
               </span>
               <AvatarPreview avatar={player.avatar} />
-              <span style={{ flex: 1 }}>{player?.name ?? `Player ${row.wrestlerId + 1}`}</span>
+              <span style={{ flex: 1 }}>{displayName(player, row.wrestlerId)}</span>
             </div>
           );
         })}

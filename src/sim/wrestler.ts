@@ -46,6 +46,8 @@ export interface Wrestler {
   attackMove: AttackMove | null;
   /** True when this attack is the scripted elimination finisher. */
   isFinisher: boolean;
+  /** True when the wrestler is laid out on the mat (extended stun). */
+  downed: boolean;
 }
 
 export function makeWrestler(id: number, x: number, y: number, facing: -1 | 1): Wrestler {
@@ -64,6 +66,7 @@ export function makeWrestler(id: number, x: number, y: number, facing: -1 | 1): 
     animPhase: 0,
     attackMove: null,
     isFinisher: false,
+    downed: false,
   };
 }
 

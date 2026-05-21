@@ -10,7 +10,7 @@ import {
 } from './scheduler';
 import { type Wrestler, type AttackMove, makeWrestler, isActive } from './wrestler';
 import { nearestOther, pickWanderPoint, startingPositions } from './ai';
-import { distSq, clampToRing, toNearestRope } from './physics';
+import { distSq, clampToRing, clampToCanvas, toNearestRope } from './physics';
 import { type GameEvent } from './events';
 
 export const TICK_HZ = 60;
@@ -43,22 +43,28 @@ const MOVE_DEFS: Record<AttackMove, MoveDef> = {
   clothesline: { duration: 0.44, hitFrame: 0.26, impulse: 200, chargeSpeed: 90 },
   grapple: { duration: 0.30, hitFrame: 0.18, impulse: 60, chargeSpeed: 0 },
   irishWhip: { duration: 0.34, hitFrame: 0.20, impulse: 220, chargeSpeed: 0 },
-  topRope: { duration: 0.85, hitFrame: 0.65, impulse: 280, chargeSpeed: 80 },
-  splash: { duration: 0.75, hitFrame: 0.55, impulse: 260, chargeSpeed: 70 },
+  topRope: { duration: 1.05, hitFrame: 0.75, impulse: 280, chargeSpeed: 110 },
+  splash: { duration: 0.95, hitFrame: 0.7, impulse: 260, chargeSpeed: 100 },
 };
 
-// Punches drop a bit (3 → 2) and the showier moves are weighted up so each
-// match reliably shows kicks, tackles, and at least one top-rope dive.
+// Tackles dropped to 1/10 (was 2/8) — they were dominating. Splashes bumped
+// to 2/10 so the top-rope dive happens at least once or twice per match.
 const REGULAR_MOVES: readonly AttackMove[] = [
   'punch',
   'punch',
+  'punch',
   'kick',
   'kick',
-  'tackle',
+  'kick',
   'tackle',
   'clothesline',
   'splash',
+  'splash',
 ];
+
+/** Moves that lay the victim flat instead of a quick stun. */
+const BIG_HITS: ReadonlySet<AttackMove> = new Set(['tackle', 'splash', 'topRope', 'clothesline']);
+const DOWNED_DURATION = 1.4;
 const FINISHER_MOVES: readonly AttackMove[] = [
   'topRope',
   'splash',
@@ -171,7 +177,15 @@ export function tick(s: MatchState): void {
     if (w.state === 'eliminated') continue;
     w.x += w.vx * TICK_DT;
     w.y += w.vy * TICK_DT;
-    if (w.state !== 'beingEliminated') {
+    if (w.state === 'beingEliminated') {
+      // Keep launched wrestlers on-canvas so the faded body stays visible.
+      // They can leave the ring (cross the ropes) but not leave the screen.
+      const clamp = clampToCanvas(w.x, w.y);
+      if (w.x !== clamp.x) w.vx = 0;
+      if (w.y !== clamp.y) w.vy = 0;
+      w.x = clamp.x;
+      w.y = clamp.y;
+    } else {
       const clamped = clampToRing(w.x, w.y);
       w.x = clamped.x;
       w.y = clamped.y;
@@ -305,7 +319,14 @@ function attackStep(w: Wrestler, s: MatchState): void {
         t.vx = (dx / len) * def.impulse;
         t.vy = (dy / len) * def.impulse;
         t.state = 'stunned';
-        t.stateTimer = STUN_DURATION;
+        if (BIG_HITS.has(move)) {
+          // Lay them out on the mat. They'll get back up after DOWNED_DURATION.
+          t.stateTimer = DOWNED_DURATION;
+          t.downed = true;
+        } else {
+          t.stateTimer = STUN_DURATION;
+          t.downed = false;
+        }
         s.pendingEvents.push({ type: 'hit', attacker: w.id, victim: t.id, move });
       }
     }
@@ -320,11 +341,17 @@ function attackStep(w: Wrestler, s: MatchState): void {
 
 function stunStep(w: Wrestler): void {
   w.stateTimer -= TICK_DT;
-  // Drift with residual velocity, no AI input. Damping handled by integration.
-  w.vx *= 0.94;
-  w.vy *= 0.94;
+  if (w.downed) {
+    // Laid flat — stop sliding so they don't drift across the ring.
+    w.vx *= 0.7;
+    w.vy *= 0.7;
+  } else {
+    w.vx *= 0.94;
+    w.vy *= 0.94;
+  }
   if (w.stateTimer <= 0) {
     w.state = 'wandering';
+    w.downed = false;
   }
 }
 

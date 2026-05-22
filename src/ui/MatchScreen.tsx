@@ -212,7 +212,7 @@ export function MatchScreen() {
             </div>
           )}
         </div>
-        <DraftPickPanel roster={roster} picks={picks} />
+        <CommentaryLog lines={lines} />
       </div>
       <div
         style={{
@@ -230,8 +230,8 @@ export function MatchScreen() {
           {muted ? 'Unmute' : 'Mute'}
         </button>
       </div>
-      <div style={{ marginTop: 8 }}>
-        <CommentaryLog lines={lines} />
+      <div style={{ marginTop: 12 }}>
+        <DraftPickPanel roster={roster} picks={picks} />
       </div>
     </div>
   );

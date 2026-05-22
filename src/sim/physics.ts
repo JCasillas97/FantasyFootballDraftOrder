@@ -59,6 +59,13 @@ export function clampToRing(x: number, y: number, r: Ring = RING): { x: number; 
 }
 
 /**
+ * Width of the concrete floor band between the ring and the crowd. Launched
+ * wrestlers land somewhere in this band — they can leave the ring but not
+ * end up in the seating. Renderer reads the same constant for crowd layout.
+ */
+export const FLOOR_BAND = 60;
+
+/**
  * Clamp to the visible canvas (with sprite-size margin) so that wrestlers
  * launched out of the ring stay on-screen as "dead bodies". The sprite is
  * 48x64 on the canvas; the margins below keep the head/feet visible.
@@ -72,6 +79,19 @@ export function clampToCanvas(x: number, y: number): { x: number; y: number } {
   return {
     x: Math.max(marginX, Math.min(CANVAS_BOUND_W - marginX, x)),
     y: Math.max(marginTop, Math.min(CANVAS_BOUND_H - marginBottom, y)),
+  };
+}
+
+/**
+ * Clamp to the floor band — the concrete strip between the ropes and the
+ * barricades. Eliminated bodies land here, not in the crowd. Wrestlers may
+ * cross the ropes outward (the elimination toss does this) but they hit the
+ * barricade at FLOOR_BAND distance and stop.
+ */
+export function clampToFloor(x: number, y: number, r: Ring = RING): { x: number; y: number } {
+  return {
+    x: Math.max(ringLeft(r) - FLOOR_BAND + 6, Math.min(ringRight(r) + FLOOR_BAND - 6, x)),
+    y: Math.max(ringTop(r) - FLOOR_BAND + 6, Math.min(ringBottom(r) + FLOOR_BAND - 6, y)),
   };
 }
 

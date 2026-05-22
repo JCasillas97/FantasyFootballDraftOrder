@@ -13,7 +13,7 @@ import { nearestOther, pickWanderPoint, startingPositions } from './ai';
 import {
   distSq,
   clampToRing,
-  clampToCanvas,
+  clampToFloor,
   toNearestRope,
   ringLeft,
   ringRight,
@@ -282,9 +282,10 @@ export function tick(s: MatchState): void {
     w.x += w.vx * TICK_DT;
     w.y += w.vy * TICK_DT;
     if (w.state === 'beingEliminated') {
-      // Keep launched wrestlers on-canvas so the faded body stays visible.
-      // They can leave the ring (cross the ropes) but not leave the screen.
-      const clamp = clampToCanvas(w.x, w.y);
+      // Land in the floor band between ring and crowd — never in the seats.
+      // The launched velocity carries them past the ropes; the barricade
+      // distance away from the ring is the hard stop.
+      const clamp = clampToFloor(w.x, w.y);
       if (w.x !== clamp.x) w.vx = 0;
       if (w.y !== clamp.y) w.vy = 0;
       w.x = clamp.x;

@@ -105,6 +105,20 @@ input[type='text']:focus {
   margin-bottom: 16px;
 }
 
+/* Canvas + draft board side-by-side; stacks on narrow screens */
+.match-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .match-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .setup-grid {
     grid-template-columns: 1fr;

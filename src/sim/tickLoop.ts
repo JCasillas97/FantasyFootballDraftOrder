@@ -57,16 +57,17 @@ const MOVE_DEFS: Record<AttackMove, MoveDef> = {
   splash: { duration: 0.95, hitFrame: 0.7, impulse: 260, chargeSpeed: 100 },
 };
 
-// Tackles dropped to 1/10 (was 2/8) — they were dominating. Splashes bumped
-// to 2/10 so the top-rope dive happens at least once or twice per match.
+// Tackle dropped from the regular pool entirely — its forward charge was
+// making the action feel hectic. It stays available as a finisher move.
+// Splash kept at 2/10 so the in-match top-rope dive still shows up.
 const REGULAR_MOVES: readonly AttackMove[] = [
   'punch',
   'punch',
   'punch',
+  'punch',
   'kick',
   'kick',
   'kick',
-  'tackle',
   'clothesline',
   'splash',
   'splash',
@@ -83,10 +84,21 @@ const SPOTLIGHT_DOWNED_DURATION = 3.0;
  * climbs up, hangs there, leaps across the ring, and crashes onto a
  * pre-chosen victim. Sequence stages drive both physics and commentary.
  */
-type SpotlightStage = 'pending' | 'walk' | 'climb' | 'hang' | 'leap' | 'recover' | 'done';
+type SpotlightStage =
+  | 'pending'
+  | 'walk'
+  | 'climb'
+  | 'hang'
+  | 'leap'
+  | 'impact'
+  | 'launch'
+  | 'done';
 interface SpotlightState {
-  scheduledTime: number;
+  /** Which scheduled elimination this spotlight replaces. */
+  targetElimIdx: number;
+  /** Picked at match start; the wrestler performing the dive. */
   actor: number;
+  /** Set to currentVictim when the spotlight actually begins. */
   target: number;
   stage: SpotlightStage;
   stageTimer: number;
@@ -99,7 +111,9 @@ const SPOTLIGHT_WALK_MAX = 2.0;
 const SPOTLIGHT_CLIMB_DURATION = 0.7;
 const SPOTLIGHT_HANG_DURATION = 0.9;
 const SPOTLIGHT_LEAP_DURATION = 1.0;
-const SPOTLIGHT_RECOVER_DURATION = 0.4;
+const SPOTLIGHT_RECOVER_DURATION = 1.6;
+const SPOTLIGHT_IMPACT_PAUSE = 0.7;
+const SPOTLIGHT_LAUNCH_DURATION = 1.4;
 const SPOTLIGHT_CLIMB_HEIGHT = 56;
 const SPOTLIGHT_WALK_SPEED = 110;
 const FINISHER_MOVES: readonly AttackMove[] = [
@@ -148,42 +162,32 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
     finished: false,
     eliminationLog: [],
     pendingEvents: [{ type: 'matchStart', seed }],
-    spotlight: planSpotlight(schedule.eliminationOrder, schedule.targets, schedule.duration, rng),
+    spotlight: planSpotlight(schedule.eliminationOrder, rng),
   };
 }
 
 /**
- * Choose the spotlight participants and time at match start so the moment
- * is reproducible from the seed. Actor and target are drawn from wrestlers
- * who survive past the midpoint elimination, so they're guaranteed alive
- * when the spotlight fires.
+ * Pick spotlight participants deterministically. The spotlight *replaces* a
+ * specific scheduled elimination (the midpoint one), so its target is always
+ * whoever is currentVictim at the moment it fires — guaranteed to match the
+ * scheduler. The actor is pre-picked from wrestlers who survive past that
+ * point (so they're always alive at spotlight time).
  */
 function planSpotlight(
   eliminationOrder: readonly number[],
-  targets: readonly number[],
-  duration: number,
   rng: Rng,
 ): SpotlightState | null {
-  if (eliminationOrder.length < 4 || targets.length < 2) return null;
-  const midIdx = Math.floor(eliminationOrder.length / 2);
-  // Survivor pool: those eliminated at or after midIdx, plus the winner.
-  const survivorPool = eliminationOrder.slice(midIdx);
-  if (survivorPool.length < 2) return null;
-  const actorIdx = rng.nextInt(survivorPool.length);
-  let targetIdx = rng.nextInt(survivorPool.length);
-  while (targetIdx === actorIdx) targetIdx = rng.nextInt(survivorPool.length);
-  const actor = survivorPool[actorIdx];
-  const target = survivorPool[targetIdx];
-  // Fire between 35-48% of duration — guarantees we land before the midpoint
-  // elimination at ~50%.
-  const midElimTime = targets[midIdx];
-  const scheduledTime = midElimTime * (0.65 + rng.next() * 0.25);
-  // Fallback to 40% of duration if the math is off (shouldn't happen).
-  const safeTime = Math.min(scheduledTime, duration * 0.48);
+  if (eliminationOrder.length < 4) return null;
+  const targetElimIdx = Math.floor(eliminationOrder.length / 2);
+  if (targetElimIdx >= eliminationOrder.length - 1) return null;
+  // Actor: any wrestler eliminated LATER (or the winner).
+  const actorPool = eliminationOrder.slice(targetElimIdx + 1);
+  if (actorPool.length === 0) return null;
+  const actor = actorPool[rng.nextInt(actorPool.length)];
   return {
-    scheduledTime: safeTime,
+    targetElimIdx,
     actor,
-    target,
+    target: -1,
     stage: 'pending',
     stageTimer: 0,
     cornerX: 0,
@@ -204,24 +208,6 @@ export function tick(s: MatchState): void {
   if (s.spotlight && s.spotlight.stage !== 'pending' && s.spotlight.stage !== 'done') {
     spotlightTick(s);
     return;
-  }
-  // Time to fire the spotlight? Pre-check participants are still alive and
-  // not mid-elimination.
-  if (
-    s.spotlight &&
-    s.spotlight.stage === 'pending' &&
-    s.t >= s.spotlight.scheduledTime &&
-    !isFinisherInProgress(s, s.spotlight.actor) &&
-    !isFinisherInProgress(s, s.spotlight.target)
-  ) {
-    const a = s.wrestlers[s.spotlight.actor];
-    const v = s.wrestlers[s.spotlight.target];
-    if (isActive(a) && isActive(v) && a.state !== 'beingEliminated' && v.state !== 'beingEliminated') {
-      beginSpotlight(s);
-      return;
-    }
-    // Participant unavailable (rare) — give up on the spotlight.
-    s.spotlight.stage = 'done';
   }
 
   s.t += TICK_DT;
@@ -271,6 +257,18 @@ export function tick(s: MatchState): void {
       v.state !== 'beingEliminated' &&
       !isFinisherInProgress(s, victim)
     ) {
+      // If this scheduled elimination is the spotlight slot, run the showpiece
+      // sequence instead of the regular finisher. The spotlight ends with the
+      // same elimination commit, so the schedule progresses normally.
+      if (
+        s.spotlight &&
+        s.spotlight.stage === 'pending' &&
+        s.scheduler.nextIndex === s.spotlight.targetElimIdx
+      ) {
+        s.spotlight.target = victim;
+        beginSpotlight(s);
+        return;
+      }
       triggerFinisher(s, v);
     }
   }
@@ -546,7 +544,7 @@ function eliminateStep(w: Wrestler, s: MatchState): void {
   if (w.stateTimer <= 0) {
     // Commit elimination.
     const eliminator = nearestOther(w, s.wrestlers);
-    const finishingPosition = 12 - s.eliminationLog.length; // first elim = pick 12
+    const finishingPosition = s.wrestlers.length - s.eliminationLog.length;
     s.eliminationLog.push(w.id);
     advanceSchedule(s.scheduler);
     w.state = 'eliminated';
@@ -713,7 +711,8 @@ function spotlightTick(s: MatchState): void {
       actor.renderYOffset = SPOTLIGHT_CLIMB_HEIGHT * (1 - phase) + arc;
       actor.facing = target.x < sp.leapStartX ? -1 : 1;
       if (sp.stageTimer <= 0) {
-        // IMPACT.
+        // IMPACT: actor lands on the victim. Victim laid flat momentarily so
+        // the audience sees the splash registered before the launch.
         actor.x = target.x;
         actor.y = target.y;
         actor.renderYOffset = 0;
@@ -728,13 +727,47 @@ function spotlightTick(s: MatchState): void {
         target.vy = 0;
         s.pendingEvents.push({ type: 'spotlight', stage: 'impact', actor: sp.actor, target: sp.target });
         s.pendingEvents.push({ type: 'hit', attacker: sp.actor, victim: sp.target, move: 'topRope' });
-        sp.stage = 'recover';
-        sp.stageTimer = SPOTLIGHT_RECOVER_DURATION;
+        sp.stage = 'impact';
+        sp.stageTimer = SPOTLIGHT_IMPACT_PAUSE;
       }
       break;
     }
-    case 'recover': {
+    case 'impact': {
+      // Hold the "victim laid out next to the attacker" pose briefly, then
+      // launch the victim out of the ring as the elimination.
       if (sp.stageTimer <= 0) {
+        const rope = toNearestRope(target.x, target.y);
+        const jitter = (s.rng.next() - 0.5) * (Math.PI / 4);
+        const cos = Math.cos(jitter);
+        const sin = Math.sin(jitter);
+        const lx = rope.dx * cos - rope.dy * sin;
+        const ly = rope.dx * sin + rope.dy * cos;
+        target.state = 'beingEliminated';
+        target.stateTimer = ELIMINATION_TOSS_DURATION;
+        target.animPhase = 0;
+        target.downed = false;
+        target.vx = lx * ELIM_VELOCITY;
+        target.vy = ly * ELIM_VELOCITY - 100;
+        s.pendingEvents.push({ type: 'throw', attacker: sp.actor, victim: sp.target });
+        sp.stage = 'launch';
+        sp.stageTimer = SPOTLIGHT_LAUNCH_DURATION;
+      }
+      break;
+    }
+    case 'launch': {
+      // Drive the target's elimination toss while sim time is still paused
+      // so the launch is visible during the spotlight (not after).
+      if (target.state === 'beingEliminated') {
+        eliminateStep(target, s);
+        target.x += target.vx * TICK_DT;
+        target.y += target.vy * TICK_DT;
+        const clamp = clampToCanvas(target.x, target.y);
+        if (target.x !== clamp.x) target.vx = 0;
+        if (target.y !== clamp.y) target.vy = 0;
+        target.x = clamp.x;
+        target.y = clamp.y;
+      }
+      if (sp.stageTimer <= 0 || target.state === 'eliminated') {
         sp.stage = 'done';
       }
       break;

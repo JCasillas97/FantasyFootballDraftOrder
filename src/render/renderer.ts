@@ -1,4 +1,4 @@
-import { RING, ROPE_BAND } from '../sim/physics';
+import { RING, ROPE_BAND, FLOOR_BAND } from '../sim/physics';
 import type { MatchState } from '../sim/tickLoop';
 import { displayName, type Player } from '../state/store';
 import { Animation, SPRITE_W, SPRITE_H, SPRITE_COLS } from '../avatar/compose';
@@ -42,7 +42,6 @@ function drawCrowd(ctx: CanvasRenderingContext2D): void {
   const ringRight = RING.cx + RING.halfW;
   const ringTop = RING.cy - RING.halfH;
   const ringBottom = RING.cy + RING.halfH;
-  const FLOOR_BAND = 40; // concrete space between ring and crowd
 
   // Crowd-seating fill (dark blue gradient feel)
   ctx.fillStyle = '#15152a';

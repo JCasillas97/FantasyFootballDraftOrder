@@ -105,12 +105,12 @@ input[type='text']:focus {
   margin-bottom: 16px;
 }
 
-/* Canvas + draft board side-by-side; stacks on narrow screens */
+/* Canvas + commentary side-by-side; stacks on narrow screens */
 .match-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 200px;
+  grid-template-columns: minmax(0, 1fr) 240px;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 @media (max-width: 900px) {

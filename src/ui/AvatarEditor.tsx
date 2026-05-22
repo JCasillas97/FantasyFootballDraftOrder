@@ -8,6 +8,8 @@ import {
   HEADGEAR_STYLES,
   GEAR_PALETTE,
   ACCESSORY_STYLES,
+  HEIGHT_OPTIONS,
+  BUILD_OPTIONS,
 } from '../avatar/avatar';
 import { composeAvatarSheet, Animation, SPRITE_W, SPRITE_H } from '../avatar/compose';
 
@@ -89,6 +91,20 @@ export function AvatarEditor({ avatar, onChange }: Props) {
           length={ACCESSORY_STYLES.length}
           labelFn={(i) => ACCESSORY_STYLES[i]}
           onChange={(v) => onChange({ ...avatar, accessory: v })}
+        />
+        <Cycler
+          label="Height"
+          value={avatar.height ?? 1}
+          length={HEIGHT_OPTIONS.length}
+          labelFn={(i) => HEIGHT_OPTIONS[i]}
+          onChange={(v) => onChange({ ...avatar, height: v })}
+        />
+        <Cycler
+          label="Build"
+          value={avatar.build ?? 1}
+          length={BUILD_OPTIONS.length}
+          labelFn={(i) => BUILD_OPTIONS[i]}
+          onChange={(v) => onChange({ ...avatar, build: v })}
         />
       </div>
     </div>

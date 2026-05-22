@@ -113,7 +113,7 @@ const SPOTLIGHT_HANG_DURATION = 0.9;
 const SPOTLIGHT_LEAP_DURATION = 1.0;
 const SPOTLIGHT_RECOVER_DURATION = 1.6;
 const SPOTLIGHT_IMPACT_PAUSE = 0.7;
-const SPOTLIGHT_LAUNCH_DURATION = 1.4;
+const SPOTLIGHT_LAUNCH_DURATION = 0.8; // post-impact "rest" stage (body on mat)
 const SPOTLIGHT_CLIMB_HEIGHT = 56;
 const SPOTLIGHT_WALK_SPEED = 110;
 const FINISHER_MOVES: readonly AttackMove[] = [
@@ -734,40 +734,32 @@ function spotlightTick(s: MatchState): void {
     }
     case 'impact': {
       // Hold the "victim laid out next to the attacker" pose briefly, then
-      // launch the victim out of the ring as the elimination.
+      // commit the elimination in place — the body stays on the mat where
+      // they got slammed, no flying through the air.
       if (sp.stageTimer <= 0) {
-        const rope = toNearestRope(target.x, target.y);
-        const jitter = (s.rng.next() - 0.5) * (Math.PI / 4);
-        const cos = Math.cos(jitter);
-        const sin = Math.sin(jitter);
-        const lx = rope.dx * cos - rope.dy * sin;
-        const ly = rope.dx * sin + rope.dy * cos;
-        target.state = 'beingEliminated';
-        target.stateTimer = ELIMINATION_TOSS_DURATION;
-        target.animPhase = 0;
+        const eliminator = nearestOther(target, s.wrestlers);
+        const finishingPosition = s.wrestlers.length - s.eliminationLog.length;
+        s.eliminationLog.push(target.id);
+        advanceSchedule(s.scheduler);
+        target.state = 'eliminated';
         target.downed = false;
-        target.vx = lx * ELIM_VELOCITY;
-        target.vy = ly * ELIM_VELOCITY - 100;
-        s.pendingEvents.push({ type: 'throw', attacker: sp.actor, victim: sp.target });
+        target.vx = 0;
+        target.vy = 0;
+        s.pendingEvents.push({
+          type: 'eliminated',
+          wrestler: target.id,
+          eliminator: eliminator?.id ?? sp.actor,
+          finishingPosition,
+        });
         sp.stage = 'launch';
         sp.stageTimer = SPOTLIGHT_LAUNCH_DURATION;
       }
       break;
     }
     case 'launch': {
-      // Drive the target's elimination toss while sim time is still paused
-      // so the launch is visible during the spotlight (not after).
-      if (target.state === 'beingEliminated') {
-        eliminateStep(target, s);
-        target.x += target.vx * TICK_DT;
-        target.y += target.vy * TICK_DT;
-        const clamp = clampToCanvas(target.x, target.y);
-        if (target.x !== clamp.x) target.vx = 0;
-        if (target.y !== clamp.y) target.vy = 0;
-        target.x = clamp.x;
-        target.y = clamp.y;
-      }
-      if (sp.stageTimer <= 0 || target.state === 'eliminated') {
+      // "Rest" stage — body lies dead on the mat at the slam position while
+      // the actor finishes recovering. Just runs out the clock.
+      if (sp.stageTimer <= 0) {
         sp.stage = 'done';
       }
       break;

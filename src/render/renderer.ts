@@ -33,28 +33,140 @@ export function drawFrame(
 }
 
 function drawCrowd(ctx: CanvasRenderingContext2D): void {
-  // Static crowd silhouette behind the ring (animated in Phase 6 polish).
-  ctx.fillStyle = '#1a1a30';
-  ctx.fillRect(0, 0, CANVAS_W, RING.cy - RING.halfH - 4);
-  ctx.fillRect(0, RING.cy + RING.halfH + 4, CANVAS_W, CANVAS_H - (RING.cy + RING.halfH + 4));
-  ctx.fillRect(0, 0, RING.cx - RING.halfW - 4, CANVAS_H);
-  ctx.fillRect(RING.cx + RING.halfW + 4, 0, CANVAS_W - (RING.cx + RING.halfW + 4), CANVAS_H);
+  // Arena floor (concrete around the ring).
+  ctx.fillStyle = '#262638';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-  // Pixel-dot crowd heads (deterministic-looking pattern, not RNG-driven).
-  ctx.fillStyle = '#2a2a4a';
-  for (let y = 8; y < CANVAS_H; y += 14) {
-    for (let x = 8; x < CANVAS_W; x += 12) {
-      const insideRing =
-        x > RING.cx - RING.halfW - 4 &&
-        x < RING.cx + RING.halfW + 4 &&
-        y > RING.cy - RING.halfH - 4 &&
-        y < RING.cy + RING.halfH + 4;
-      if (insideRing) continue;
-      if ((x * 31 + y * 53) % 11 === 0) {
-        ctx.fillRect(x, y, 4, 4);
-      }
+  // Crowd zones (darker — tiered seating behind barriers).
+  const ringLeft = RING.cx - RING.halfW;
+  const ringRight = RING.cx + RING.halfW;
+  const ringTop = RING.cy - RING.halfH;
+  const ringBottom = RING.cy + RING.halfH;
+  const FLOOR_BAND = 40; // concrete space between ring and crowd
+
+  // Crowd-seating fill (dark blue gradient feel)
+  ctx.fillStyle = '#15152a';
+  // Top tier
+  ctx.fillRect(0, 0, CANVAS_W, ringTop - FLOOR_BAND);
+  // Bottom tier
+  ctx.fillRect(0, ringBottom + FLOOR_BAND, CANVAS_W, CANVAS_H - (ringBottom + FLOOR_BAND));
+  // Left tier
+  ctx.fillRect(0, 0, ringLeft - FLOOR_BAND, CANVAS_H);
+  // Right tier
+  ctx.fillRect(ringRight + FLOOR_BAND, 0, CANVAS_W - (ringRight + FLOOR_BAND), CANVAS_H);
+
+  // Crowd rows — pseudo-random people with varied shirt colors.
+  const shirtColors = ['#aa3030', '#3060c0', '#30a060', '#c0a030', '#a040b0', '#d06030'];
+  const skinTones = ['#e8b88c', '#cc9264', '#a87044', '#80502c', '#583820'];
+
+  const drawCrowdRow = (x0: number, x1: number, y: number, rowHash: number) => {
+    for (let x = x0; x < x1; x += 6) {
+      const h = (x * 31 + y * 53 + rowHash * 17) | 0;
+      if (((h >>> 3) & 0x7) === 0) continue; // small gaps
+      const shirt = shirtColors[Math.abs(h) % shirtColors.length];
+      const skin = skinTones[Math.abs(h >> 4) % skinTones.length];
+      // Body
+      ctx.fillStyle = shirt;
+      ctx.fillRect(x, y + 3, 4, 4);
+      // Head
+      ctx.fillStyle = skin;
+      ctx.fillRect(x + 1, y, 3, 3);
     }
+  };
+
+  // Top crowd: multiple rows
+  for (let row = 0; row < ringTop - FLOOR_BAND - 4; row += 9) {
+    drawCrowdRow(2, CANVAS_W - 2, row, row);
   }
+  // Bottom crowd: multiple rows
+  for (let row = ringBottom + FLOOR_BAND + 4; row < CANVAS_H - 6; row += 9) {
+    drawCrowdRow(2, CANVAS_W - 2, row, row + 100);
+  }
+  // Left crowd: vertical strips
+  for (let row = 0; row < CANVAS_H; row += 9) {
+    drawCrowdRow(2, ringLeft - FLOOR_BAND - 4, row, row + 200);
+  }
+  // Right crowd
+  for (let row = 0; row < CANVAS_H; row += 9) {
+    drawCrowdRow(ringRight + FLOOR_BAND + 4, CANVAS_W - 2, row, row + 300);
+  }
+
+  // Steel barricades around the ring
+  ctx.fillStyle = '#888899';
+  // Top barricade
+  ctx.fillRect(ringLeft - FLOOR_BAND, ringTop - FLOOR_BAND, ringRight - ringLeft + FLOOR_BAND * 2, 4);
+  ctx.fillStyle = '#444455';
+  ctx.fillRect(ringLeft - FLOOR_BAND, ringTop - FLOOR_BAND + 4, ringRight - ringLeft + FLOOR_BAND * 2, 2);
+  // Bottom barricade
+  ctx.fillStyle = '#888899';
+  ctx.fillRect(ringLeft - FLOOR_BAND, ringBottom + FLOOR_BAND - 6, ringRight - ringLeft + FLOOR_BAND * 2, 4);
+  ctx.fillStyle = '#444455';
+  ctx.fillRect(ringLeft - FLOOR_BAND, ringBottom + FLOOR_BAND - 2, ringRight - ringLeft + FLOOR_BAND * 2, 2);
+  // Left barricade
+  ctx.fillStyle = '#888899';
+  ctx.fillRect(ringLeft - FLOOR_BAND, ringTop - FLOOR_BAND, 4, ringBottom - ringTop + FLOOR_BAND * 2);
+  // Right barricade
+  ctx.fillRect(ringRight + FLOOR_BAND - 4, ringTop - FLOOR_BAND, 4, ringBottom - ringTop + FLOOR_BAND * 2);
+  // Barricade vertical posts every 30px
+  ctx.fillStyle = '#666677';
+  for (let x = ringLeft - FLOOR_BAND + 8; x < ringRight + FLOOR_BAND - 8; x += 30) {
+    ctx.fillRect(x, ringTop - FLOOR_BAND - 2, 2, 8);
+    ctx.fillRect(x, ringBottom + FLOOR_BAND - 4, 2, 8);
+  }
+
+  // Announcer table at the bottom — two seated figures behind it.
+  const tableY = ringBottom + 14;
+  const tableLeft = ringLeft + RING.halfW - 80;
+  const tableW = 160;
+  ctx.fillStyle = '#5a3a20';
+  ctx.fillRect(tableLeft, tableY, tableW, 12);
+  ctx.fillStyle = '#3a2515';
+  ctx.fillRect(tableLeft, tableY + 10, tableW, 2);
+  // Black skirt/cloth in front
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(tableLeft, tableY + 12, tableW, 16);
+  // Mic stand
+  ctx.fillStyle = '#aaaaaa';
+  ctx.fillRect(tableLeft + 30, tableY - 6, 1, 6);
+  ctx.fillRect(tableLeft + tableW - 30, tableY - 6, 1, 6);
+  ctx.fillRect(tableLeft + 29, tableY - 7, 3, 2);
+  ctx.fillRect(tableLeft + tableW - 31, tableY - 7, 3, 2);
+  // Two commentator heads peeking over the table
+  ctx.fillStyle = '#cc9264';
+  ctx.fillRect(tableLeft + 22, tableY - 8, 6, 6);
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(tableLeft + 23, tableY - 4, 1, 1);
+  ctx.fillRect(tableLeft + 26, tableY - 4, 1, 1);
+  ctx.fillStyle = '#3a2418';
+  ctx.fillRect(tableLeft + 22, tableY - 9, 6, 1);
+
+  ctx.fillStyle = '#a87044';
+  ctx.fillRect(tableLeft + tableW - 28, tableY - 8, 6, 6);
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(tableLeft + tableW - 27, tableY - 4, 1, 1);
+  ctx.fillRect(tableLeft + tableW - 24, tableY - 4, 1, 1);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(tableLeft + tableW - 28, tableY - 9, 6, 1);
+
+  // A few floor tables (production / ring crew) on left and right sides
+  ctx.fillStyle = '#5a3a20';
+  ctx.fillRect(ringLeft - FLOOR_BAND + 8, ringTop + 60, 22, 8);
+  ctx.fillStyle = '#3a2515';
+  ctx.fillRect(ringLeft - FLOOR_BAND + 8, ringTop + 66, 22, 2);
+  ctx.fillStyle = '#5a3a20';
+  ctx.fillRect(ringRight + FLOOR_BAND - 30, ringTop + 60, 22, 8);
+  ctx.fillStyle = '#3a2515';
+  ctx.fillRect(ringRight + FLOOR_BAND - 30, ringTop + 66, 22, 2);
+
+  // Spotlight beams from above (subtle yellow gradient)
+  ctx.fillStyle = 'rgba(255, 220, 100, 0.04)';
+  ctx.beginPath();
+  ctx.moveTo(RING.cx - 100, 0);
+  ctx.lineTo(RING.cx + 100, 0);
+  ctx.lineTo(ringRight - 40, ringTop);
+  ctx.lineTo(ringLeft + 40, ringTop);
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawRing(ctx: CanvasRenderingContext2D): void {

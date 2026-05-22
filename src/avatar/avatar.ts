@@ -14,7 +14,12 @@ export interface Avatar {
   headgear: number; // index into HEADGEAR_STYLES (0 = none)
   gearColor: number; // index into GEAR_PALETTE (trunks/singlet)
   accessory: number; // index into ACCESSORY_STYLES (0 = none)
+  height: number; // index into HEIGHT_OPTIONS (0=short, 1=medium, 2=tall)
+  build: number; // index into BUILD_OPTIONS (0=skinny, 1=medium, 2=fat)
 }
+
+export const HEIGHT_OPTIONS = ['short', 'medium', 'tall'] as const;
+export const BUILD_OPTIONS = ['skinny', 'medium', 'fat'] as const;
 
 export const SKIN_PALETTE: readonly string[] = [
   '#f8d8b8', // very light
@@ -105,5 +110,7 @@ export function defaultAvatar(): Avatar {
     headgear: 0,
     gearColor: 0,
     accessory: 0,
+    height: 1,
+    build: 1,
   };
 }

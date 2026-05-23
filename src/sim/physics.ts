@@ -66,12 +66,12 @@ export function clampToRing(x: number, y: number, r: Ring = RING): { x: number; 
 export const FLOOR_BAND = 60;
 
 /**
- * The "spot table" position — a designated table outside the ring on the
- * floor where the table-break spot happens. Same coordinates used by the
- * renderer to draw the table.
+ * The "spot table" position — the announcer's table at the bottom of the
+ * screen. The table-break spot drags the victim here and slams them through
+ * the commentators' desk. Same coordinates used by the renderer.
  */
-export const SPOT_TABLE_X = RING.cx + RING.halfW + FLOOR_BAND - 50;
-export const SPOT_TABLE_Y = RING.cy - RING.halfH + 70;
+export const SPOT_TABLE_X = RING.cx;
+export const SPOT_TABLE_Y = RING.cy + RING.halfH + 24;
 
 /**
  * Clamp to the visible canvas (with sprite-size margin) so that wrestlers

@@ -18,7 +18,6 @@ export function MatchScreen() {
   const setResult = useAppStore((s) => s.setResult);
   const setScreen = useAppStore((s) => s.setScreen);
   const setReplaySeed = useAppStore((s) => s.setReplaySeed);
-  const [recordingActive, setRecordingActive] = useState(false);
   const [lines, setLines] = useState<readonly string[]>([]);
   const initialPicks = () =>
     Array.from({ length: roster.length }, (_, i) => ({
@@ -66,7 +65,6 @@ export function MatchScreen() {
         videoBitsPerSecond: 1_200_000,
         audioTracks,
       });
-      if (recorder) setRecordingActive(true);
     }
 
     let raf = 0;
@@ -210,36 +208,6 @@ export function MatchScreen() {
               display: 'block',
             }}
           />
-          {recordingActive && (
-            <div
-              style={{
-                position: 'absolute',
-                top: 12,
-                right: 12,
-                background: 'rgba(0,0,0,0.6)',
-                border: '1px solid var(--accent-hot)',
-                padding: '4px 8px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 12,
-                color: 'var(--accent-hot)',
-                fontWeight: 'bold',
-                letterSpacing: 1,
-              }}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: 'var(--accent-hot)',
-                  animation: 'pulse 1s infinite',
-                }}
-              />
-              REC
-            </div>
-          )}
         </div>
         <CommentaryLog lines={lines} />
       </div>

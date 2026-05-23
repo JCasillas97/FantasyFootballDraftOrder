@@ -33,12 +33,15 @@ export const DEFAULT_ROSTER_SIZE = 12;
 interface AppState {
   screen: Screen;
   roster: Player[];
+  /** Shown on the ring mat and used as the default save filename. */
+  leagueName: string;
   result: MatchResult | null;
   /** When set, MatchScreen replays this exact seed instead of generating a fresh one. */
   replaySeed: number | null;
   setScreen: (screen: Screen) => void;
   setRoster: (roster: Player[]) => void;
   setRosterSize: (size: number) => void;
+  setLeagueName: (name: string) => void;
   setResult: (result: MatchResult) => void;
   setReplaySeed: (seed: number | null) => void;
   reset: () => void;
@@ -61,10 +64,12 @@ export function displayName(player: Player, index?: number): string {
 export const useAppStore = create<AppState>((set, get) => ({
   screen: 'setup',
   roster: defaultRoster(),
+  leagueName: '',
   result: null,
   replaySeed: null,
   setScreen: (screen) => set({ screen }),
   setRoster: (roster) => set({ roster }),
+  setLeagueName: (leagueName) => set({ leagueName }),
   setRosterSize: (size) => {
     const clamped = Math.max(MIN_ROSTER, Math.min(MAX_ROSTER, Math.floor(size)));
     const current = get().roster;

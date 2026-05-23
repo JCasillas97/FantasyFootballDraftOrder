@@ -13,18 +13,22 @@ import { SFX, getCaptureAudioTracks, resumeAudio, setMuted, isMuted } from '../a
 export function MatchScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const roster = useAppStore((s) => s.roster);
+  const leagueName = useAppStore((s) => s.leagueName);
   const replaySeed = useAppStore((s) => s.replaySeed);
   const setResult = useAppStore((s) => s.setResult);
   const setScreen = useAppStore((s) => s.setScreen);
   const setReplaySeed = useAppStore((s) => s.setReplaySeed);
   const [recordingActive, setRecordingActive] = useState(false);
   const [lines, setLines] = useState<readonly string[]>([]);
-  const [picks, setPicks] = useState<readonly DraftPick[]>(() =>
+  const initialPicks = () =>
     Array.from({ length: roster.length }, (_, i) => ({
       pickNumber: roster.length - i,
-      wrestlerId: null,
-    })),
-  );
+      wrestlerId: null as number | null,
+    }));
+  const [picks, setPicks] = useState<readonly DraftPick[]>(initialPicks);
+  // Mirror of picks so the RAF loop can read the latest value without
+  // re-binding the closure on each React render.
+  const picksRef = useRef<readonly DraftPick[]>(picks);
   const [muted, setMutedLocal] = useState(isMuted());
 
   useEffect(() => {
@@ -47,7 +51,9 @@ export function MatchScreen() {
       sheets.set(player.id, composeAvatarSheet(player.avatar));
     }
 
-    drawFrame(ctx, state, roster, sheets);
+    let resultsShownAt = 0;
+    const RESULTS_HOLD_MS = 7000;
+    drawFrame(ctx, state, roster, sheets, { leagueName, picks: picksRef.current });
 
     // Start the recorder *after* audio tracks are available so they get baked
     // into the MP4. If audio init fails (no user gesture yet) we still record
@@ -129,21 +135,27 @@ export function MatchScreen() {
       }
       if (events.length > 0) setLines(commentary.all.slice());
       if (pickUpdates.length > 0) {
-        setPicks((prev) =>
-          prev.map((p) => {
-            const upd = pickUpdates.find((u) => u.pickNumber === p.pickNumber);
-            return upd ? { ...p, wrestlerId: upd.wrestlerId } : p;
-          }),
-        );
+        const next = picksRef.current.map((p) => {
+          const upd = pickUpdates.find((u) => u.pickNumber === p.pickNumber);
+          return upd ? { ...p, wrestlerId: upd.wrestlerId } : p;
+        });
+        picksRef.current = next;
+        setPicks(next);
       }
 
-      drawFrame(ctx, state, roster, sheets);
+      // Hold the end-of-match results overlay on the canvas for several
+      // seconds so it bakes into the recorded video before we finalize.
+      const showResults = state.finished;
+      if (showResults && resultsShownAt === 0) resultsShownAt = now;
+      drawFrame(ctx, state, roster, sheets, {
+        leagueName,
+        picks: picksRef.current,
+        resultsOverlay: showResults,
+      });
 
-      if (state.finished) {
-        setTimeout(() => {
-          stopped = true;
-          finalize();
-        }, 1500);
+      if (showResults && now - resultsShownAt >= RESULTS_HOLD_MS) {
+        stopped = true;
+        finalize();
         return;
       }
 

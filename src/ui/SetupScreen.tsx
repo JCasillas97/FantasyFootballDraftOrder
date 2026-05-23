@@ -16,10 +16,11 @@ export function SetupScreen() {
   const setRoster = useAppStore((s) => s.setRoster);
   const setRosterSize = useAppStore((s) => s.setRosterSize);
   const setScreen = useAppStore((s) => s.setScreen);
+  const leagueName = useAppStore((s) => s.leagueName);
+  const setLeagueName = useAppStore((s) => s.setLeagueName);
 
   const [selectedId, setSelectedId] = useState<number>(0);
   const [savedNames, setSavedNames] = useState<string[]>(() => listSavedRosters());
-  const [saveName, setSaveName] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -30,7 +31,7 @@ export function SetupScreen() {
   };
 
   const handleSave = () => {
-    const name = saveName.trim();
+    const name = leagueName.trim();
     if (!name) {
       setStatusMsg('Enter a roster name first.');
       return;
@@ -48,19 +49,19 @@ export function SetupScreen() {
     }
     setRoster(rosterToPlayers(saved));
     setSelectedId(0);
-    setSaveName(name);
+    setLeagueName(name);
     setStatusMsg(`Loaded "${name}".`);
   };
 
   const handleDelete = (name: string) => {
     deleteRoster(name);
     setSavedNames(listSavedRosters());
-    if (saveName === name) setSaveName('');
+    if (leagueName === name) setLeagueName('');
     setStatusMsg(`Deleted "${name}".`);
   };
 
   const handleExport = () => {
-    const name = saveName.trim() || 'roster';
+    const name = leagueName.trim() || 'roster';
     const json = exportRosterJson(name, roster);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -80,7 +81,7 @@ export function SetupScreen() {
     }
     setRoster(rosterToPlayers(saved));
     setSelectedId(0);
-    setSaveName(saved.name);
+    setLeagueName(saved.name);
     setStatusMsg(`Imported "${saved.name}".`);
   };
 
@@ -211,10 +212,11 @@ export function SetupScreen() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             type="text"
-            placeholder="Roster name"
-            value={saveName}
-            onChange={(e) => setSaveName(e.target.value)}
-            style={{ width: 200, fontSize: 12 }}
+            placeholder="League name (shown on the ring)"
+            value={leagueName}
+            maxLength={28}
+            onChange={(e) => setLeagueName(e.target.value)}
+            style={{ width: 260, fontSize: 12 }}
           />
           <button onClick={handleSave} style={{ fontSize: 11 }}>
             Save Roster

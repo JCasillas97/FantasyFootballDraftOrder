@@ -22,6 +22,7 @@ import {
   PLAYABLE_INSET,
   SPOT_TABLE_X,
   SPOT_TABLE_Y,
+  CANVAS_BOUND_W,
 } from './physics';
 import { type GameEvent } from './events';
 
@@ -220,8 +221,11 @@ function planSpotlight(
   if (eliminationOrder.length < 4) return null;
   const targetElimIdx = Math.floor(eliminationOrder.length / 2);
   if (targetElimIdx >= eliminationOrder.length - 1) return null;
-  // Actor: any wrestler eliminated LATER (or the winner).
-  const actorPool = eliminationOrder.slice(targetElimIdx + 1);
+  // Actor must NOT be the very next scheduled victim — otherwise they'd
+  // perform the splash and then immediately get eliminated, making it look
+  // like the jumper was the one being slammed. Skip at least one slot ahead.
+  const minActorIdx = Math.min(targetElimIdx + 2, eliminationOrder.length - 1);
+  const actorPool = eliminationOrder.slice(minActorIdx);
   if (actorPool.length === 0) return null;
   const actor = actorPool[rng.nextInt(actorPool.length)];
   return {
@@ -253,9 +257,10 @@ function planTableBreak(
   // Don't collide with the spotlight slot.
   const spotlightIdx = Math.floor(eliminationOrder.length / 2);
   if (targetElimIdx === spotlightIdx) return null;
-  const actorPool = eliminationOrder.slice(targetElimIdx + 1);
-  // Exclude the spotlight target/actor would be over-restrictive at small
-  // rosters; allow any later wrestler. (Edge cases settle naturally.)
+  // Skip ≥1 slot ahead so the actor doesn't get eliminated right after the
+  // table spot.
+  const minActorIdx = Math.min(targetElimIdx + 2, eliminationOrder.length - 1);
+  const actorPool = eliminationOrder.slice(minActorIdx);
   if (actorPool.length === 0) return null;
   const actor = actorPool[rng.nextInt(actorPool.length)];
   return {
@@ -798,10 +803,12 @@ function spotlightTick(s: MatchState): void {
       actor.renderYOffset = SPOTLIGHT_CLIMB_HEIGHT * (1 - phase) + arc;
       actor.facing = target.x < sp.leapStartX ? -1 : 1;
       if (sp.stageTimer <= 0) {
-        // IMPACT: actor lands on the victim. Victim laid flat momentarily so
-        // the audience sees the splash registered before the launch.
-        actor.x = target.x;
-        actor.y = target.y;
+        // IMPACT: actor lands next to (not on top of) the victim so the
+        // audience clearly sees the body that's getting eliminated.
+        const stepDir = target.x < CANVAS_BOUND_W / 2 ? 1 : -1;
+        actor.x = target.x + stepDir * 18;
+        actor.y = target.y - 2;
+        actor.facing = -stepDir as -1 | 1;
         actor.renderYOffset = 0;
         actor.state = 'recovering';
         actor.stateTimer = SPOTLIGHT_RECOVER_DURATION;

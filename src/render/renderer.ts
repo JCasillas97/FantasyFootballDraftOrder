@@ -250,13 +250,9 @@ function drawCrowd(ctx: CanvasRenderingContext2D, energy: number, tableBroken: b
     ctx.fillRect(x, ringBottom + FLOOR_BAND - 4, 2, 8);
   }
 
-  // Announcer table at the bottom + two animated commentators behind it.
-  drawAnnouncerTable(ctx, ringLeft, ringBottom, energy, wallSec);
-
-  // Spot table on the right side of the ring — this is the table that
-  // breaks in half during the table-spot event. State controlled by
-  // tableBroken flag passed in from the sim.
-  drawSpotTable(ctx, ringRight + FLOOR_BAND - 50, ringTop + 70, tableBroken);
+  // Announcer table at the bottom — also the table that breaks during the
+  // table-spot event.
+  drawAnnouncerTable(ctx, ringLeft, ringBottom, energy, wallSec, tableBroken);
 
   // Spotlight beams from above (subtle yellow gradient)
   ctx.fillStyle = 'rgba(255, 220, 100, 0.04)';
@@ -272,7 +268,8 @@ function drawCrowd(ctx: CanvasRenderingContext2D, energy: number, tableBroken: b
 /**
  * Bigger, animated commentators behind the announcer table. Each has a head,
  * shoulders, and a headset; both bob to wall-clock so they look engaged.
- * During eruption they throw a hand up.
+ * During eruption they throw a hand up. When the table is broken, the
+ * commentators dive out of the way and the table is shown split in half.
  */
 function drawAnnouncerTable(
   ctx: CanvasRenderingContext2D,
@@ -280,12 +277,47 @@ function drawAnnouncerTable(
   ringBottom: number,
   energy: number,
   wallSec: number,
+  broken: boolean,
 ): void {
   const tableY = ringBottom + 18;
   const tableLeft = ringLeft + RING.halfW - 90;
   const tableW = 180;
 
-  // Table top
+  if (broken) {
+    // Two halves splayed apart; toppled mic stands; splintered middle.
+    // Left half tilted left
+    ctx.fillStyle = '#5a3a20';
+    ctx.fillRect(tableLeft - 8, tableY + 4, tableW / 2 - 8, 10);
+    ctx.fillStyle = '#7a5230';
+    ctx.fillRect(tableLeft - 8, tableY + 2, tableW / 2 - 8, 3);
+    // Right half tilted right
+    ctx.fillStyle = '#5a3a20';
+    ctx.fillRect(tableLeft + tableW / 2 + 8, tableY + 4, tableW / 2 - 8, 10);
+    ctx.fillStyle = '#7a5230';
+    ctx.fillRect(tableLeft + tableW / 2 + 8, tableY + 2, tableW / 2 - 8, 3);
+    // Splintered middle gap
+    ctx.fillStyle = '#3a2515';
+    ctx.fillRect(tableLeft + tableW / 2 - 8, tableY + 10, 16, 5);
+    ctx.fillStyle = '#8a6238';
+    ctx.fillRect(tableLeft + tableW / 2 - 5, tableY + 6, 1, 6);
+    ctx.fillRect(tableLeft + tableW / 2 - 1, tableY + 6, 1, 6);
+    ctx.fillRect(tableLeft + tableW / 2 + 3, tableY + 6, 1, 6);
+    // Loose splinter bits scattered
+    ctx.fillStyle = '#5a3a20';
+    ctx.fillRect(tableLeft + tableW / 2 - 12, tableY + 18, 2, 1);
+    ctx.fillRect(tableLeft + tableW / 2 + 6, tableY + 18, 2, 1);
+    ctx.fillRect(tableLeft + tableW / 2 - 2, tableY + 20, 3, 1);
+    // Toppled mics on the floor
+    ctx.fillStyle = '#aaaaaa';
+    ctx.fillRect(tableLeft + 24, tableY + 22, 8, 1);
+    ctx.fillRect(tableLeft + tableW - 32, tableY + 22, 8, 1);
+    ctx.fillRect(tableLeft + 23, tableY + 21, 3, 2);
+    ctx.fillRect(tableLeft + tableW - 26, tableY + 21, 3, 2);
+    // No skirt, no commentators (they dove out of the way).
+    return;
+  }
+
+  // ---- Intact table ----
   ctx.fillStyle = '#5a3a20';
   ctx.fillRect(tableLeft, tableY, tableW, 12);
   ctx.fillStyle = '#3a2515';
@@ -346,55 +378,6 @@ function drawAnnouncerTable(
 
   commentator(tableLeft + 36, '#cc9264', '#3a2418', '#222244', 0);
   commentator(tableLeft + tableW - 36, '#a87044', '#1a1a1a', '#552222', 0.5);
-}
-
-/**
- * Spot table on the right side of the floor. When intact, a sturdy plywood
- * table standing on legs. When broken, two halves splayed apart with
- * splinters — the result of a wrestler being slammed through it.
- */
-function drawSpotTable(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  broken: boolean,
-): void {
-  if (!broken) {
-    // Intact: brown plywood top + dark band + two legs
-    ctx.fillStyle = '#7a5230';
-    ctx.fillRect(cx - 18, cy, 36, 5);
-    ctx.fillStyle = '#4a2f18';
-    ctx.fillRect(cx - 18, cy + 4, 36, 2);
-    ctx.fillStyle = '#5a3a20';
-    ctx.fillRect(cx - 16, cy + 6, 3, 8);
-    ctx.fillRect(cx + 13, cy + 6, 3, 8);
-    // Highlight
-    ctx.fillStyle = '#8a6238';
-    ctx.fillRect(cx - 18, cy, 36, 1);
-  } else {
-    // Broken: two halves tilted apart, splinters scattered.
-    // Left half tilted up-left
-    ctx.fillStyle = '#5a3a20';
-    ctx.fillRect(cx - 20, cy + 8, 16, 5);
-    ctx.fillStyle = '#7a5230';
-    ctx.fillRect(cx - 20, cy + 6, 16, 3);
-    // Right half tilted up-right
-    ctx.fillStyle = '#5a3a20';
-    ctx.fillRect(cx + 5, cy + 8, 16, 5);
-    ctx.fillStyle = '#7a5230';
-    ctx.fillRect(cx + 5, cy + 6, 16, 3);
-    // Splintered middle
-    ctx.fillStyle = '#3a2515';
-    ctx.fillRect(cx - 4, cy + 10, 8, 3);
-    ctx.fillStyle = '#8a6238';
-    ctx.fillRect(cx - 2, cy + 8, 1, 4);
-    ctx.fillRect(cx + 1, cy + 8, 1, 4);
-    // Loose splinter bits
-    ctx.fillStyle = '#5a3a20';
-    ctx.fillRect(cx - 6, cy + 14, 2, 1);
-    ctx.fillRect(cx + 4, cy + 14, 2, 1);
-    ctx.fillRect(cx - 1, cy + 15, 2, 1);
-  }
 }
 
 function drawRing(ctx: CanvasRenderingContext2D, leagueName: string): void {

@@ -20,6 +20,8 @@ import {
   ringTop,
   ringBottom,
   PLAYABLE_INSET,
+  SPOT_TABLE_X,
+  SPOT_TABLE_Y,
 } from './physics';
 import { type GameEvent } from './events';
 
@@ -108,6 +110,41 @@ interface SpotlightState {
   leapStartY: number;
 }
 const SPOTLIGHT_WALK_MAX = 2.0;
+
+/**
+ * Table-break spot — second guaranteed showpiece per match. Actor grabs the
+ * target inside the ring, drags them to the spot table outside the ropes,
+ * lifts them up, slams them through the table, and the target is eliminated
+ * lying on the broken halves. Same trigger pattern as the spotlight: this
+ * sequence REPLACES one scheduled elimination.
+ */
+type TableBreakStage =
+  | 'pending'
+  | 'approach'
+  | 'drag'
+  | 'lift'
+  | 'slam'
+  | 'rest'
+  | 'done';
+interface TableBreakState {
+  /** Which scheduled elimination this spot replaces. */
+  targetElimIdx: number;
+  actor: number;
+  target: number;
+  stage: TableBreakStage;
+  stageTimer: number;
+  /** True once the slam connects (renderer shows broken table from here). */
+  broken: boolean;
+  dragStartX: number;
+  dragStartY: number;
+}
+const TABLEBREAK_APPROACH_MAX = 1.6;
+const TABLEBREAK_DRAG_DURATION = 1.4;
+const TABLEBREAK_LIFT_DURATION = 0.8;
+const TABLEBREAK_SLAM_DURATION = 0.45;
+const TABLEBREAK_REST_DURATION = 1.2;
+const TABLEBREAK_LIFT_HEIGHT = 32;
+const TABLEBREAK_DRAG_SPEED = 80;
 const SPOTLIGHT_CLIMB_DURATION = 0.7;
 const SPOTLIGHT_HANG_DURATION = 0.9;
 const SPOTLIGHT_LEAP_DURATION = 1.0;
@@ -135,6 +172,8 @@ export interface MatchState {
   pendingEvents: GameEvent[];
   /** Mid-match showstopper sequence (null = none planned). */
   spotlight: SpotlightState | null;
+  /** Earlier showstopper: table-break elimination (null = none planned). */
+  tableBreak: TableBreakState | null;
 }
 
 export interface MatchConfig {
@@ -163,6 +202,7 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
     eliminationLog: [],
     pendingEvents: [{ type: 'matchStart', seed }],
     spotlight: planSpotlight(schedule.eliminationOrder, rng),
+    tableBreak: planTableBreak(schedule.eliminationOrder, rng),
   };
 }
 
@@ -198,6 +238,39 @@ function planSpotlight(
 }
 
 /**
+ * Plan the table-break event. Targets an EARLIER elimination than the
+ * spotlight (~1/3 through) so the two big moments are spread across the
+ * match. Actor picked from wrestlers eliminated later (guaranteed alive at
+ * spot time).
+ */
+function planTableBreak(
+  eliminationOrder: readonly number[],
+  rng: Rng,
+): TableBreakState | null {
+  if (eliminationOrder.length < 6) return null; // skip on tiny leagues
+  const targetElimIdx = Math.floor(eliminationOrder.length / 3);
+  if (targetElimIdx >= eliminationOrder.length - 1) return null;
+  // Don't collide with the spotlight slot.
+  const spotlightIdx = Math.floor(eliminationOrder.length / 2);
+  if (targetElimIdx === spotlightIdx) return null;
+  const actorPool = eliminationOrder.slice(targetElimIdx + 1);
+  // Exclude the spotlight target/actor would be over-restrictive at small
+  // rosters; allow any later wrestler. (Edge cases settle naturally.)
+  if (actorPool.length === 0) return null;
+  const actor = actorPool[rng.nextInt(actorPool.length)];
+  return {
+    targetElimIdx,
+    actor,
+    target: -1,
+    stage: 'pending',
+    stageTimer: 0,
+    broken: false,
+    dragStartX: 0,
+    dragStartY: 0,
+  };
+}
+
+/**
  * Advance the sim by one fixed-timestep tick. Order of operations matters
  * for determinism — same seed must always produce the same trajectory.
  */
@@ -207,6 +280,10 @@ export function tick(s: MatchState): void {
   // and the choreography drives the actor/target. Other wrestlers stand still.
   if (s.spotlight && s.spotlight.stage !== 'pending' && s.spotlight.stage !== 'done') {
     spotlightTick(s);
+    return;
+  }
+  if (s.tableBreak && s.tableBreak.stage !== 'pending' && s.tableBreak.stage !== 'done') {
+    tableBreakTick(s);
     return;
   }
 
@@ -257,9 +334,18 @@ export function tick(s: MatchState): void {
       v.state !== 'beingEliminated' &&
       !isFinisherInProgress(s, victim)
     ) {
-      // If this scheduled elimination is the spotlight slot, run the showpiece
-      // sequence instead of the regular finisher. The spotlight ends with the
-      // same elimination commit, so the schedule progresses normally.
+      // Two showpiece slots replace the regular finisher: the table-break
+      // (earlier) and the spotlight (midpoint). Both end with the same
+      // elimination commit so the schedule progresses normally.
+      if (
+        s.tableBreak &&
+        s.tableBreak.stage === 'pending' &&
+        s.scheduler.nextIndex === s.tableBreak.targetElimIdx
+      ) {
+        s.tableBreak.target = victim;
+        beginTableBreak(s);
+        return;
+      }
       if (
         s.spotlight &&
         s.spotlight.stage === 'pending' &&
@@ -763,6 +849,169 @@ function spotlightTick(s: MatchState): void {
       if (sp.stageTimer <= 0) {
         sp.stage = 'done';
       }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+// ---------------- Table-break choreography ----------------
+
+function beginTableBreak(s: MatchState): void {
+  const tb = s.tableBreak!;
+  const actor = s.wrestlers[tb.actor];
+  const target = s.wrestlers[tb.target];
+  tb.stage = 'approach';
+  tb.stageTimer = TABLEBREAK_APPROACH_MAX;
+
+  // Freeze every non-participant so the spot reads as a moment.
+  for (const w of s.wrestlers) {
+    if (w.id === tb.actor || w.id === tb.target) continue;
+    if (!isActive(w)) continue;
+    if (w.state === 'beingEliminated') continue;
+    w.vx = 0;
+    w.vy = 0;
+    w.state = 'wandering';
+    w.targetId = null;
+    w.attackMove = null;
+    w.isFinisher = false;
+    w.downed = false;
+    w.stateTimer = 0;
+  }
+  target.state = 'wandering';
+  target.vx = 0;
+  target.vy = 0;
+  target.targetId = null;
+  actor.state = 'wandering';
+  actor.targetId = null;
+  actor.attackMove = null;
+  s.pendingEvents.push({
+    type: 'spotlight',
+    stage: 'climb',
+    actor: tb.actor,
+    target: tb.target,
+  });
+}
+
+function tableBreakTick(s: MatchState): void {
+  const tb = s.tableBreak!;
+  const actor = s.wrestlers[tb.actor];
+  const target = s.wrestlers[tb.target];
+  tb.stageTimer -= TICK_DT;
+
+  switch (tb.stage) {
+    case 'approach': {
+      // Actor walks to the target, then they pair up.
+      const dx = target.x - actor.x;
+      const dy = target.y - actor.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 24 || tb.stageTimer <= 0) {
+        // Knock the target down — they're ready to be carried.
+        target.state = 'stunned';
+        target.downed = true;
+        target.stateTimer = 10; // held in stun until the slam commits
+        actor.facing = dx < 0 ? -1 : 1;
+        tb.stage = 'drag';
+        tb.stageTimer = TABLEBREAK_DRAG_DURATION;
+        tb.dragStartX = (actor.x + target.x) / 2;
+        tb.dragStartY = (actor.y + target.y) / 2;
+        s.pendingEvents.push({
+          type: 'spotlight',
+          stage: 'leap',
+          actor: tb.actor,
+          target: tb.target,
+        });
+      } else {
+        actor.vx = (dx / dist) * TABLEBREAK_DRAG_SPEED;
+        actor.vy = (dy / dist) * TABLEBREAK_DRAG_SPEED;
+        actor.x += actor.vx * TICK_DT;
+        actor.y += actor.vy * TICK_DT;
+        actor.facing = dx < 0 ? -1 : 1;
+      }
+      break;
+    }
+    case 'drag': {
+      // Actor + downed target slide together to the spot table position.
+      const p = 1 - Math.max(0, tb.stageTimer / TABLEBREAK_DRAG_DURATION);
+      const ax = tb.dragStartX + (SPOT_TABLE_X - tb.dragStartX) * p;
+      const ay = tb.dragStartY + (SPOT_TABLE_Y - tb.dragStartY) * p;
+      // Actor a few pixels behind target so it looks like dragging.
+      target.x = ax;
+      target.y = ay;
+      actor.x = ax - 14;
+      actor.y = ay + 2;
+      actor.facing = 1; // facing the table
+      if (tb.stageTimer <= 0) {
+        target.x = SPOT_TABLE_X;
+        target.y = SPOT_TABLE_Y;
+        actor.x = SPOT_TABLE_X - 14;
+        actor.y = SPOT_TABLE_Y;
+        tb.stage = 'lift';
+        tb.stageTimer = TABLEBREAK_LIFT_DURATION;
+      }
+      break;
+    }
+    case 'lift': {
+      // Actor lifts the target up over the table.
+      const p = 1 - Math.max(0, tb.stageTimer / TABLEBREAK_LIFT_DURATION);
+      target.renderYOffset = TABLEBREAK_LIFT_HEIGHT * p;
+      target.x = SPOT_TABLE_X;
+      target.y = SPOT_TABLE_Y - 4;
+      actor.x = SPOT_TABLE_X - 10;
+      actor.y = SPOT_TABLE_Y + 4;
+      // Use raised-arms (Animation.Thrown) pose for the target via state.
+      // We're already in 'stunned' downed; renderer shows them flat, but
+      // with the renderYOffset they float upward — reads as "being lifted".
+      if (tb.stageTimer <= 0) {
+        tb.stage = 'slam';
+        tb.stageTimer = TABLEBREAK_SLAM_DURATION;
+      }
+      break;
+    }
+    case 'slam': {
+      // Target plummets onto the table. Breaks at the moment of impact.
+      const p = 1 - Math.max(0, tb.stageTimer / TABLEBREAK_SLAM_DURATION);
+      target.renderYOffset = TABLEBREAK_LIFT_HEIGHT * (1 - p);
+      if (tb.stageTimer <= 0) {
+        target.renderYOffset = 0;
+        target.x = SPOT_TABLE_X;
+        target.y = SPOT_TABLE_Y + 8;
+        tb.broken = true;
+        // Commit elimination in place — body stays on the broken table.
+        const finishingPosition = s.wrestlers.length - s.eliminationLog.length;
+        s.eliminationLog.push(target.id);
+        advanceSchedule(s.scheduler);
+        target.state = 'eliminated';
+        target.downed = false;
+        target.vx = 0;
+        target.vy = 0;
+        s.pendingEvents.push({
+          type: 'eliminated',
+          wrestler: target.id,
+          eliminator: tb.actor,
+          finishingPosition,
+        });
+        s.pendingEvents.push({
+          type: 'spotlight',
+          stage: 'impact',
+          actor: tb.actor,
+          target: tb.target,
+        });
+        s.pendingEvents.push({
+          type: 'hit',
+          attacker: tb.actor,
+          victim: tb.target,
+          move: 'topRope',
+        });
+        tb.stage = 'rest';
+        tb.stageTimer = TABLEBREAK_REST_DURATION;
+      }
+      break;
+    }
+    case 'rest': {
+      // Body lies on the wreckage; actor catches their breath.
+      if (tb.stageTimer <= 0) tb.stage = 'done';
       break;
     }
     default:

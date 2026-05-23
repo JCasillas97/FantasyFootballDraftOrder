@@ -73,6 +73,10 @@ export function MatchScreen() {
     let accumulator = 0;
     let lastWall = performance.now();
     let stopped = false;
+    // Crowd energy decays toward 0; spikes on big events (eliminations,
+    // spotlight impact, table-break slam). Pure render-only — doesn't touch
+    // sim determinism.
+    let crowdEnergy = 0.15; // baseline "interested" level
 
     const finalize = async () => {
       let recording = null;
@@ -126,10 +130,17 @@ export function MatchScreen() {
           case 'eliminated':
             SFX.eliminated();
             pickUpdates.push({ pickNumber: ev.finishingPosition, wrestlerId: ev.wrestler });
+            crowdEnergy = Math.max(crowdEnergy, 0.85);
             break;
           case 'matchEnd':
             SFX.matchEnd();
             pickUpdates.push({ pickNumber: 1, wrestlerId: ev.winner });
+            crowdEnergy = 1.2;
+            break;
+          case 'spotlight':
+            if (ev.stage === 'climb') crowdEnergy = Math.max(crowdEnergy, 0.55);
+            else if (ev.stage === 'leap') crowdEnergy = Math.max(crowdEnergy, 0.85);
+            else if (ev.stage === 'impact') crowdEnergy = 1.3; // eruption!
             break;
         }
       }
@@ -143,6 +154,10 @@ export function MatchScreen() {
         setPicks(next);
       }
 
+      // Crowd energy decays each frame back toward baseline.
+      const decay = Math.min(1, delta * 0.4);
+      crowdEnergy = crowdEnergy * (1 - decay) + 0.15 * decay;
+
       // Hold the end-of-match results overlay on the canvas for several
       // seconds so it bakes into the recorded video before we finalize.
       const showResults = state.finished;
@@ -151,6 +166,8 @@ export function MatchScreen() {
         leagueName,
         picks: picksRef.current,
         resultsOverlay: showResults,
+        crowdEnergy,
+        tableBroken: state.tableBreak?.broken ?? false,
       });
 
       if (showResults && now - resultsShownAt >= RESULTS_HOLD_MS) {

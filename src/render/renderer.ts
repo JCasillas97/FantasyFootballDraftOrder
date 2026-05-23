@@ -26,6 +26,10 @@ export interface FrameOptions {
   leagueName?: string;
   picks?: readonly DraftPickLite[];
   resultsOverlay?: boolean;
+  /** Crowd liveliness 0..1+ (>1 = peak eruption). */
+  crowdEnergy?: number;
+  /** Whether the spot table has been smashed. */
+  tableBroken?: boolean;
 }
 
 export function drawFrame(
@@ -38,7 +42,7 @@ export function drawFrame(
   ctx.fillStyle = '#0a0a14';
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-  drawCrowd(ctx);
+  drawCrowd(ctx, opts.crowdEnergy ?? 0, opts.tableBroken ?? false);
   drawRing(ctx, opts.leagueName ?? '');
   drawWrestlers(ctx, state, roster, sheets);
   drawHud(ctx, state);
@@ -154,7 +158,7 @@ function drawResultsOverlay(
   }
 }
 
-function drawCrowd(ctx: CanvasRenderingContext2D): void {
+function drawCrowd(ctx: CanvasRenderingContext2D, energy: number, tableBroken: boolean): void {
   // Arena floor (concrete around the ring).
   ctx.fillStyle = '#262638';
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -167,31 +171,42 @@ function drawCrowd(ctx: CanvasRenderingContext2D): void {
 
   // Crowd-seating fill (dark blue gradient feel)
   ctx.fillStyle = '#15152a';
-  // Top tier
   ctx.fillRect(0, 0, CANVAS_W, ringTop - FLOOR_BAND);
-  // Bottom tier
   ctx.fillRect(0, ringBottom + FLOOR_BAND, CANVAS_W, CANVAS_H - (ringBottom + FLOOR_BAND));
-  // Left tier
   ctx.fillRect(0, 0, ringLeft - FLOOR_BAND, CANVAS_H);
-  // Right tier
   ctx.fillRect(ringRight + FLOOR_BAND, 0, CANVAS_W - (ringRight + FLOOR_BAND), CANVAS_H);
 
-  // Crowd rows — pseudo-random people with varied shirt colors.
+  // Crowd rows — pseudo-random people with varied shirt colors. Heads bob
+  // gently at idle and big during eruption (energy → 1+). Wall-clock driven
+  // so the crowd keeps moving even when sim time is paused.
   const shirtColors = ['#aa3030', '#3060c0', '#30a060', '#c0a030', '#a040b0', '#d06030'];
   const skinTones = ['#e8b88c', '#cc9264', '#a87044', '#80502c', '#583820'];
+  const wallSec = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
+  const baseBob = 0.6; // pixels — gentle idle sway
+  const eruptBob = Math.min(2.5, energy * 4); // adds up to ~4px of jitter at peak
+  const armsUpThreshold = 0.55; // above this energy, some fans throw their arms up
 
   const drawCrowdRow = (x0: number, x1: number, y: number, rowHash: number) => {
     for (let x = x0; x < x1; x += 6) {
       const h = (x * 31 + y * 53 + rowHash * 17) | 0;
-      if (((h >>> 3) & 0x7) === 0) continue; // small gaps
+      if (((h >>> 3) & 0x7) === 0) continue;
       const shirt = shirtColors[Math.abs(h) % shirtColors.length];
       const skin = skinTones[Math.abs(h >> 4) % skinTones.length];
-      // Body
+      const phase = ((h >>> 7) & 0xff) / 255;
+      // Idle sway + eruption jitter.
+      const bob =
+        Math.sin((wallSec + phase) * 6) * baseBob +
+        Math.sin((wallSec + phase) * 14) * eruptBob;
+      const yy = y + Math.round(bob);
       ctx.fillStyle = shirt;
-      ctx.fillRect(x, y + 3, 4, 4);
-      // Head
+      ctx.fillRect(x, yy + 3, 4, 4);
       ctx.fillStyle = skin;
-      ctx.fillRect(x + 1, y, 3, 3);
+      ctx.fillRect(x + 1, yy, 3, 3);
+      // Arms-up: a fraction of the crowd at peak eruption pumps their fists.
+      if (energy > armsUpThreshold && ((h >>> 12) & 0x3) === 0) {
+        ctx.fillRect(x, yy - 2, 1, 2);
+        ctx.fillRect(x + 4, yy - 2, 1, 2);
+      }
     }
   };
 
@@ -235,49 +250,13 @@ function drawCrowd(ctx: CanvasRenderingContext2D): void {
     ctx.fillRect(x, ringBottom + FLOOR_BAND - 4, 2, 8);
   }
 
-  // Announcer table at the bottom — two seated figures behind it.
-  const tableY = ringBottom + 14;
-  const tableLeft = ringLeft + RING.halfW - 80;
-  const tableW = 160;
-  ctx.fillStyle = '#5a3a20';
-  ctx.fillRect(tableLeft, tableY, tableW, 12);
-  ctx.fillStyle = '#3a2515';
-  ctx.fillRect(tableLeft, tableY + 10, tableW, 2);
-  // Black skirt/cloth in front
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(tableLeft, tableY + 12, tableW, 16);
-  // Mic stand
-  ctx.fillStyle = '#aaaaaa';
-  ctx.fillRect(tableLeft + 30, tableY - 6, 1, 6);
-  ctx.fillRect(tableLeft + tableW - 30, tableY - 6, 1, 6);
-  ctx.fillRect(tableLeft + 29, tableY - 7, 3, 2);
-  ctx.fillRect(tableLeft + tableW - 31, tableY - 7, 3, 2);
-  // Two commentator heads peeking over the table
-  ctx.fillStyle = '#cc9264';
-  ctx.fillRect(tableLeft + 22, tableY - 8, 6, 6);
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(tableLeft + 23, tableY - 4, 1, 1);
-  ctx.fillRect(tableLeft + 26, tableY - 4, 1, 1);
-  ctx.fillStyle = '#3a2418';
-  ctx.fillRect(tableLeft + 22, tableY - 9, 6, 1);
+  // Announcer table at the bottom + two animated commentators behind it.
+  drawAnnouncerTable(ctx, ringLeft, ringBottom, energy, wallSec);
 
-  ctx.fillStyle = '#a87044';
-  ctx.fillRect(tableLeft + tableW - 28, tableY - 8, 6, 6);
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(tableLeft + tableW - 27, tableY - 4, 1, 1);
-  ctx.fillRect(tableLeft + tableW - 24, tableY - 4, 1, 1);
-  ctx.fillStyle = '#000';
-  ctx.fillRect(tableLeft + tableW - 28, tableY - 9, 6, 1);
-
-  // A few floor tables (production / ring crew) on left and right sides
-  ctx.fillStyle = '#5a3a20';
-  ctx.fillRect(ringLeft - FLOOR_BAND + 8, ringTop + 60, 22, 8);
-  ctx.fillStyle = '#3a2515';
-  ctx.fillRect(ringLeft - FLOOR_BAND + 8, ringTop + 66, 22, 2);
-  ctx.fillStyle = '#5a3a20';
-  ctx.fillRect(ringRight + FLOOR_BAND - 30, ringTop + 60, 22, 8);
-  ctx.fillStyle = '#3a2515';
-  ctx.fillRect(ringRight + FLOOR_BAND - 30, ringTop + 66, 22, 2);
+  // Spot table on the right side of the ring — this is the table that
+  // breaks in half during the table-spot event. State controlled by
+  // tableBroken flag passed in from the sim.
+  drawSpotTable(ctx, ringRight + FLOOR_BAND - 50, ringTop + 70, tableBroken);
 
   // Spotlight beams from above (subtle yellow gradient)
   ctx.fillStyle = 'rgba(255, 220, 100, 0.04)';
@@ -288,6 +267,134 @@ function drawCrowd(ctx: CanvasRenderingContext2D): void {
   ctx.lineTo(ringLeft + 40, ringTop);
   ctx.closePath();
   ctx.fill();
+}
+
+/**
+ * Bigger, animated commentators behind the announcer table. Each has a head,
+ * shoulders, and a headset; both bob to wall-clock so they look engaged.
+ * During eruption they throw a hand up.
+ */
+function drawAnnouncerTable(
+  ctx: CanvasRenderingContext2D,
+  ringLeft: number,
+  ringBottom: number,
+  energy: number,
+  wallSec: number,
+): void {
+  const tableY = ringBottom + 18;
+  const tableLeft = ringLeft + RING.halfW - 90;
+  const tableW = 180;
+
+  // Table top
+  ctx.fillStyle = '#5a3a20';
+  ctx.fillRect(tableLeft, tableY, tableW, 12);
+  ctx.fillStyle = '#3a2515';
+  ctx.fillRect(tableLeft, tableY + 10, tableW, 2);
+  // Black skirt
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(tableLeft, tableY + 12, tableW, 18);
+  // Two mic stands
+  ctx.fillStyle = '#aaaaaa';
+  ctx.fillRect(tableLeft + 36, tableY - 8, 1, 8);
+  ctx.fillRect(tableLeft + tableW - 36, tableY - 8, 1, 8);
+  ctx.fillRect(tableLeft + 35, tableY - 10, 3, 3);
+  ctx.fillRect(tableLeft + tableW - 37, tableY - 10, 3, 3);
+
+  const commentator = (
+    cx: number,
+    skin: string,
+    hair: string,
+    shirt: string,
+    phase: number,
+  ) => {
+    const bob = Math.round(Math.sin((wallSec + phase) * 3.2) * 0.6);
+    const handUp = energy > 0.6 && Math.sin((wallSec + phase) * 4) > 0.3;
+    // Shoulders/shirt (visible above table)
+    ctx.fillStyle = shirt;
+    ctx.fillRect(cx - 6, tableY - 6 + bob, 12, 6);
+    // Neck
+    ctx.fillStyle = skin;
+    ctx.fillRect(cx - 1, tableY - 9 + bob, 3, 3);
+    // Head
+    ctx.fillRect(cx - 5, tableY - 17 + bob, 10, 8);
+    // Hair on top
+    ctx.fillStyle = hair;
+    ctx.fillRect(cx - 5, tableY - 18 + bob, 10, 2);
+    ctx.fillRect(cx - 6, tableY - 16 + bob, 1, 3); // sideburn
+    ctx.fillRect(cx + 5, tableY - 16 + bob, 1, 3);
+    // Eyes
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(cx - 3, tableY - 13 + bob, 1, 1);
+    ctx.fillRect(cx + 2, tableY - 13 + bob, 1, 1);
+    // Mouth — open when bob is up (talking effect)
+    if (bob === 0) {
+      ctx.fillRect(cx - 1, tableY - 11 + bob, 3, 1);
+    } else {
+      ctx.fillRect(cx - 1, tableY - 11 + bob, 2, 1);
+    }
+    // Headset
+    ctx.fillStyle = '#222233';
+    ctx.fillRect(cx - 5, tableY - 19 + bob, 10, 1);
+    ctx.fillRect(cx - 6, tableY - 14 + bob, 1, 2); // ear cup left
+    ctx.fillRect(cx + 5, tableY - 14 + bob, 1, 2); // ear cup right
+    // Hand raised during eruption
+    if (handUp) {
+      ctx.fillStyle = skin;
+      ctx.fillRect(cx - 9, tableY - 12 + bob, 2, 5);
+    }
+  };
+
+  commentator(tableLeft + 36, '#cc9264', '#3a2418', '#222244', 0);
+  commentator(tableLeft + tableW - 36, '#a87044', '#1a1a1a', '#552222', 0.5);
+}
+
+/**
+ * Spot table on the right side of the floor. When intact, a sturdy plywood
+ * table standing on legs. When broken, two halves splayed apart with
+ * splinters — the result of a wrestler being slammed through it.
+ */
+function drawSpotTable(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  broken: boolean,
+): void {
+  if (!broken) {
+    // Intact: brown plywood top + dark band + two legs
+    ctx.fillStyle = '#7a5230';
+    ctx.fillRect(cx - 18, cy, 36, 5);
+    ctx.fillStyle = '#4a2f18';
+    ctx.fillRect(cx - 18, cy + 4, 36, 2);
+    ctx.fillStyle = '#5a3a20';
+    ctx.fillRect(cx - 16, cy + 6, 3, 8);
+    ctx.fillRect(cx + 13, cy + 6, 3, 8);
+    // Highlight
+    ctx.fillStyle = '#8a6238';
+    ctx.fillRect(cx - 18, cy, 36, 1);
+  } else {
+    // Broken: two halves tilted apart, splinters scattered.
+    // Left half tilted up-left
+    ctx.fillStyle = '#5a3a20';
+    ctx.fillRect(cx - 20, cy + 8, 16, 5);
+    ctx.fillStyle = '#7a5230';
+    ctx.fillRect(cx - 20, cy + 6, 16, 3);
+    // Right half tilted up-right
+    ctx.fillStyle = '#5a3a20';
+    ctx.fillRect(cx + 5, cy + 8, 16, 5);
+    ctx.fillStyle = '#7a5230';
+    ctx.fillRect(cx + 5, cy + 6, 16, 3);
+    // Splintered middle
+    ctx.fillStyle = '#3a2515';
+    ctx.fillRect(cx - 4, cy + 10, 8, 3);
+    ctx.fillStyle = '#8a6238';
+    ctx.fillRect(cx - 2, cy + 8, 1, 4);
+    ctx.fillRect(cx + 1, cy + 8, 1, 4);
+    // Loose splinter bits
+    ctx.fillStyle = '#5a3a20';
+    ctx.fillRect(cx - 6, cy + 14, 2, 1);
+    ctx.fillRect(cx + 4, cy + 14, 2, 1);
+    ctx.fillRect(cx - 1, cy + 15, 2, 1);
+  }
 }
 
 function drawRing(ctx: CanvasRenderingContext2D, leagueName: string): void {

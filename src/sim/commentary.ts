@@ -46,17 +46,21 @@ const SPOTLIGHT_CLIMB_LINES = [
   '{a} is going UP TOP!',
   'Wait — {a} is climbing the turnbuckle!',
   "{a}'s heading to the top rope! THE CROWD IS ON THEIR FEET!",
+  "{a} just hauled {v} out of the ring — table spot incoming?!",
 ];
 const SPOTLIGHT_LEAP_LINES = [
   'OH MY GOD, {a} IS FLYING!',
   '{a} LEAPS OFF THE TOP!',
   "{a} TAKES TO THE SKY!",
+  "{a} is dragging {v} toward the announce table!",
 ];
 const SPOTLIGHT_IMPACT_LINES = [
   'DEVASTATING! {a} CRUSHES {v} FROM THE TOP ROPE!',
   '{a} BURIES {v} INTO THE MAT!',
   'THE WHOLE RING SHAKES! {a} just folded {v} in half!',
   'GOOD GOD! {v} is OUT COLD after that splash from {a}!',
+  'TABLE BROKEN IN HALF! {v} is DONE thanks to {a}!',
+  'SPLINTERS EVERYWHERE! {a} just put {v} THROUGH the table!',
 ];
 
 // Move-specific hit flavor. Only a fraction of hits log a line (most stay

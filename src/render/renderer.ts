@@ -17,19 +17,141 @@ const DRAW_H = SPRITE_H * SPRITE_SCALE;
 
 export type SpriteSheets = Map<number, HTMLCanvasElement>;
 
+export interface DraftPickLite {
+  pickNumber: number;
+  wrestlerId: number | null;
+}
+
+export interface FrameOptions {
+  leagueName?: string;
+  picks?: readonly DraftPickLite[];
+  resultsOverlay?: boolean;
+}
+
 export function drawFrame(
   ctx: CanvasRenderingContext2D,
   state: MatchState,
   roster: readonly Player[],
   sheets: SpriteSheets,
+  opts: FrameOptions = {},
 ): void {
   ctx.fillStyle = '#0a0a14';
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
   drawCrowd(ctx);
-  drawRing(ctx);
+  drawRing(ctx, opts.leagueName ?? '');
   drawWrestlers(ctx, state, roster, sheets);
   drawHud(ctx, state);
+  if (opts.picks) drawDraftOverlay(ctx, opts.picks, roster);
+  if (opts.resultsOverlay) {
+    drawResultsOverlay(ctx, state.scheduler.schedule.eliminationOrder, roster);
+  }
+}
+
+/**
+ * Compact draft-order overlay drawn on the right side of the canvas (over
+ * the crowd, so it doesn't cover the action). Filled-in picks light up as
+ * eliminations land. This is what gets captured into the exported video.
+ */
+function drawDraftOverlay(
+  ctx: CanvasRenderingContext2D,
+  picks: readonly DraftPickLite[],
+  roster: readonly Player[],
+): void {
+  const overlayW = 132;
+  const overlayX = CANVAS_W - overlayW - 4;
+  const overlayY = 4;
+  const overlayH = CANVAS_H - 8;
+  ctx.fillStyle = 'rgba(10, 10, 20, 0.78)';
+  ctx.fillRect(overlayX, overlayY, overlayW, overlayH);
+  ctx.strokeStyle = '#ffcc00';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(overlayX + 0.5, overlayY + 0.5, overlayW - 1, overlayH - 1);
+
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = 'bold 10px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('DRAFT ORDER', overlayX + overlayW / 2, overlayY + 5);
+
+  ctx.font = '9px ui-monospace, monospace';
+  ctx.textAlign = 'left';
+  const rowH = Math.max(11, Math.min(20, (overlayH - 22) / picks.length));
+  const startY = overlayY + 20;
+  for (let i = 0; i < picks.length; i++) {
+    const pick = picks[i];
+    const rowY = startY + i * rowH;
+    if (rowY + 9 > overlayY + overlayH - 2) break;
+    const player = pick.wrestlerId !== null ? roster[pick.wrestlerId] : null;
+    const isWinner = pick.pickNumber === 1;
+    const label = `#${pick.pickNumber}`;
+    if (player) {
+      ctx.fillStyle = isWinner ? '#ffd700' : '#ffffff';
+      const name = displayName(player, pick.wrestlerId!);
+      ctx.fillText(`${label} ${name}`, overlayX + 6, rowY);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.30)';
+      ctx.fillText(label, overlayX + 6, rowY);
+    }
+  }
+}
+
+/**
+ * End-of-match takeover. Dims the canvas, shows WINNER in gold, 2nd in
+ * silver, 3rd in bronze, then ranks 4..N in plain white. Held on screen
+ * while the recorder is still running so the final results bake into the
+ * exported video.
+ */
+function drawResultsOverlay(
+  ctx: CanvasRenderingContext2D,
+  eliminationOrder: readonly number[],
+  roster: readonly Player[],
+): void {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.86)';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = 'bold 32px ui-monospace, monospace';
+  ctx.fillText('DRAFT ORDER', CANVAS_W / 2, 20);
+
+  const N = eliminationOrder.length;
+  if (N === 0) return;
+  const nameFor = (idx: number) => {
+    const id = eliminationOrder[idx];
+    return roster[id] ? displayName(roster[id], id) : `Player ${id + 1}`;
+  };
+
+  let y = 64;
+  // Winner (gold)
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold 26px ui-monospace, monospace';
+  ctx.fillText(`WINNER: ${nameFor(N - 1)}`, CANVAS_W / 2, y);
+  y += 40;
+
+  if (N >= 2) {
+    ctx.fillStyle = '#d8d8d8';
+    ctx.font = 'bold 20px ui-monospace, monospace';
+    ctx.fillText(`2ND: ${nameFor(N - 2)}`, CANVAS_W / 2, y);
+    y += 28;
+  }
+  if (N >= 3) {
+    ctx.fillStyle = '#cd7f32';
+    ctx.font = 'bold 20px ui-monospace, monospace';
+    ctx.fillText(`3RD: ${nameFor(N - 3)}`, CANVAS_W / 2, y);
+    y += 34;
+  }
+
+  ctx.fillStyle = '#f0f0ff';
+  ctx.font = '15px ui-monospace, monospace';
+  for (let pick = 4; pick <= N; pick++) {
+    const idx = N - pick;
+    if (idx < 0) break;
+    ctx.fillText(`${pick}. ${nameFor(idx)}`, CANVAS_W / 2, y);
+    y += 19;
+    if (y > CANVAS_H - 14) break;
+  }
 }
 
 function drawCrowd(ctx: CanvasRenderingContext2D): void {
@@ -168,7 +290,7 @@ function drawCrowd(ctx: CanvasRenderingContext2D): void {
   ctx.fill();
 }
 
-function drawRing(ctx: CanvasRenderingContext2D): void {
+function drawRing(ctx: CanvasRenderingContext2D, leagueName: string): void {
   const left = RING.cx - RING.halfW;
   const top = RING.cy - RING.halfH;
   const w = RING.halfW * 2;
@@ -181,6 +303,18 @@ function drawRing(ctx: CanvasRenderingContext2D): void {
   ctx.fillStyle = '#4a3520';
   for (let y = top + 8; y < top + h; y += 24) {
     ctx.fillRect(left, y, w, 2);
+  }
+
+  // League name printed on the mat (faded gold so wrestlers stay readable).
+  const name = leagueName.trim();
+  if (name) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 204, 0, 0.32)';
+    ctx.font = 'bold 26px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name.toUpperCase(), RING.cx, RING.cy);
+    ctx.restore();
   }
 
   // Ropes

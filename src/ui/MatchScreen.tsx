@@ -155,6 +155,10 @@ export function MatchScreen() {
       // Crowd energy decays each frame back toward baseline.
       const decay = Math.min(1, delta * 0.4);
       crowdEnergy = crowdEnergy * (1 - decay) + 0.15 * decay;
+      // Hold the eruption high while the winner is celebrating.
+      if (state.wrestlers.some((w) => w.state === 'celebrating')) {
+        crowdEnergy = Math.max(crowdEnergy, 1.0);
+      }
 
       // Hold the end-of-match results overlay on the canvas for several
       // seconds so it bakes into the recorded video before we finalize.

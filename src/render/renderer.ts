@@ -285,12 +285,10 @@ function drawAnnouncerTable(
 
   if (broken) {
     // Two halves splayed apart; toppled mic stands; splintered middle.
-    // Left half tilted left
     ctx.fillStyle = '#5a3a20';
     ctx.fillRect(tableLeft - 8, tableY + 4, tableW / 2 - 8, 10);
     ctx.fillStyle = '#7a5230';
     ctx.fillRect(tableLeft - 8, tableY + 2, tableW / 2 - 8, 3);
-    // Right half tilted right
     ctx.fillStyle = '#5a3a20';
     ctx.fillRect(tableLeft + tableW / 2 + 8, tableY + 4, tableW / 2 - 8, 10);
     ctx.fillStyle = '#7a5230';
@@ -313,7 +311,43 @@ function drawAnnouncerTable(
     ctx.fillRect(tableLeft + tableW - 32, tableY + 22, 8, 1);
     ctx.fillRect(tableLeft + 23, tableY + 21, 3, 2);
     ctx.fillRect(tableLeft + tableW - 26, tableY + 21, 3, 2);
-    // No skirt, no commentators (they dove out of the way).
+
+    // Commentators FREAKING OUT — bigger jump, both hands up, panicked.
+    const freakOut = (
+      cx: number,
+      skin: string,
+      hair: string,
+      shirt: string,
+      phase: number,
+    ) => {
+      const jump = Math.round(Math.abs(Math.sin((wallSec + phase) * 9)) * 4);
+      const handFlail = Math.sin((wallSec + phase) * 12) > 0;
+      // Heads/shoulders pop up above where the table used to be.
+      ctx.fillStyle = shirt;
+      ctx.fillRect(cx - 6, tableY - 6 - jump, 12, 6);
+      ctx.fillStyle = skin;
+      ctx.fillRect(cx - 1, tableY - 9 - jump, 3, 3);
+      ctx.fillRect(cx - 5, tableY - 17 - jump, 10, 8);
+      ctx.fillStyle = hair;
+      ctx.fillRect(cx - 5, tableY - 18 - jump, 10, 2);
+      ctx.fillRect(cx - 6, tableY - 16 - jump, 1, 3);
+      ctx.fillRect(cx + 5, tableY - 16 - jump, 1, 3);
+      // Eyes — wide open.
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(cx - 3, tableY - 13 - jump, 1, 2);
+      ctx.fillRect(cx + 2, tableY - 13 - jump, 1, 2);
+      // Open mouth (shouting).
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(cx - 1, tableY - 10 - jump, 3, 2);
+      // Both hands UP — flailing.
+      ctx.fillStyle = skin;
+      const lH = handFlail ? -3 : -1;
+      const rH = handFlail ? -1 : -3;
+      ctx.fillRect(cx - 9, tableY - 14 - jump + lH, 2, 6);
+      ctx.fillRect(cx + 7, tableY - 14 - jump + rH, 2, 6);
+    };
+    freakOut(tableLeft + 36, '#cc9264', '#3a2418', '#222244', 0);
+    freakOut(tableLeft + tableW - 36, '#a87044', '#1a1a1a', '#552222', 0.5);
     return;
   }
 
@@ -531,6 +565,14 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
     case 'wandering':
     case 'engaging':
       anim = Math.hypot(w.vx, w.vy) > 8 ? Animation.Walk : Animation.Idle;
+      break;
+    case 'celebrating':
+      anim = Animation.Celebrate;
+      break;
+    case 'mounting':
+      // Reuse the Attack row (arm extended) — the mounted attacker is
+      // cycling through punches at MOUNT_PUNCH_INTERVAL.
+      anim = Animation.Attack;
       break;
     default:
       anim = Animation.Idle;

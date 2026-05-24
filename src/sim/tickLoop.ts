@@ -120,7 +120,13 @@ interface SpotlightState {
   leapStartX: number;
   leapStartY: number;
 }
-const SPOTLIGHT_WALK_MAX = 2.0;
+const SPOTLIGHT_WALK_MAX = 2.6;
+const SPOTLIGHT_CLIMB_DURATION = 1.1;
+const SPOTLIGHT_HANG_DURATION = 1.6;
+const SPOTLIGHT_LEAP_DURATION = 1.3;
+const SPOTLIGHT_RECOVER_DURATION = 1.9;
+const SPOTLIGHT_IMPACT_PAUSE = 1.0;
+const SPOTLIGHT_LAUNCH_DURATION = 1.0;
 
 /**
  * Table-break spot — second guaranteed showpiece per match. Actor grabs the
@@ -160,12 +166,6 @@ const TABLEBREAK_WALK_DURATION = 1.6;
 const TABLEBREAK_CELEBRATE_DURATION = 4.0;
 const TABLEBREAK_LIFT_HEIGHT = 32;
 const TABLEBREAK_DRAG_SPEED = 80;
-const SPOTLIGHT_CLIMB_DURATION = 0.7;
-const SPOTLIGHT_HANG_DURATION = 0.9;
-const SPOTLIGHT_LEAP_DURATION = 1.0;
-const SPOTLIGHT_RECOVER_DURATION = 1.6;
-const SPOTLIGHT_IMPACT_PAUSE = 0.7;
-const SPOTLIGHT_LAUNCH_DURATION = 0.8; // post-impact "rest" stage (body on mat)
 const SPOTLIGHT_CLIMB_HEIGHT = 56;
 const SPOTLIGHT_WALK_SPEED = 110;
 const FINISHER_MOVES: readonly AttackMove[] = [
@@ -1045,47 +1045,50 @@ function tableBreakTick(s: MatchState): void {
       break;
     }
     case 'drag': {
-      // Actor + downed target slide together to the spot table position.
+      // Slide them together to the LAUNCH spot — south side of the ring,
+      // still inside the ropes. Actor will throw the target from here and
+      // stay planted.
+      const launchX = RING.cx;
+      const launchY = RING.cy + RING.halfH - PLAYABLE_INSET - 6;
       const p = 1 - Math.max(0, tb.stageTimer / TABLEBREAK_DRAG_DURATION);
-      const ax = tb.dragStartX + (SPOT_TABLE_X - tb.dragStartX) * p;
-      const ay = tb.dragStartY + (SPOT_TABLE_Y - tb.dragStartY) * p;
-      // Actor a few pixels behind target so it looks like dragging.
+      const ax = tb.dragStartX + (launchX - tb.dragStartX) * p;
+      const ay = tb.dragStartY + (launchY - tb.dragStartY) * p;
       target.x = ax;
       target.y = ay;
-      actor.x = ax - 14;
-      actor.y = ay + 2;
-      actor.facing = 1; // facing the table
+      actor.x = ax - 4;
+      actor.y = ay - 2;
+      actor.facing = 1;
       if (tb.stageTimer <= 0) {
-        target.x = SPOT_TABLE_X;
-        target.y = SPOT_TABLE_Y;
-        actor.x = SPOT_TABLE_X - 14;
-        actor.y = SPOT_TABLE_Y;
+        target.x = launchX;
+        target.y = launchY;
+        actor.x = launchX - 4;
+        actor.y = launchY - 2;
         tb.stage = 'lift';
         tb.stageTimer = TABLEBREAK_LIFT_DURATION;
       }
       break;
     }
     case 'lift': {
-      // Actor lifts the target up over the table.
+      // Actor lifts the target overhead — both still inside the ring.
       const p = 1 - Math.max(0, tb.stageTimer / TABLEBREAK_LIFT_DURATION);
       target.renderYOffset = TABLEBREAK_LIFT_HEIGHT * p;
-      target.x = SPOT_TABLE_X;
-      target.y = SPOT_TABLE_Y - 4;
-      actor.x = SPOT_TABLE_X - 10;
-      actor.y = SPOT_TABLE_Y + 4;
-      // Use raised-arms (Animation.Thrown) pose for the target via state.
-      // We're already in 'stunned' downed; renderer shows them flat, but
-      // with the renderYOffset they float upward — reads as "being lifted".
       if (tb.stageTimer <= 0) {
+        // Snapshot launch position; the slam stage flies the target out.
+        tb.dragStartX = target.x;
+        tb.dragStartY = target.y;
         tb.stage = 'slam';
         tb.stageTimer = TABLEBREAK_SLAM_DURATION;
       }
       break;
     }
     case 'slam': {
-      // Target plummets onto the table. Breaks at the moment of impact.
+      // Target flies in an arc OVER the south rope and lands on the
+      // announce table. Actor stays inside the ring.
       const p = 1 - Math.max(0, tb.stageTimer / TABLEBREAK_SLAM_DURATION);
-      target.renderYOffset = TABLEBREAK_LIFT_HEIGHT * (1 - p);
+      target.x = tb.dragStartX + (SPOT_TABLE_X - tb.dragStartX) * p;
+      target.y = tb.dragStartY + (SPOT_TABLE_Y - tb.dragStartY) * p;
+      const arc = Math.sin(p * Math.PI) * 28;
+      target.renderYOffset = TABLEBREAK_LIFT_HEIGHT * (1 - p) + arc;
       if (tb.stageTimer <= 0) {
         target.renderYOffset = 0;
         target.x = SPOT_TABLE_X;
@@ -1132,11 +1135,13 @@ function tableBreakTick(s: MatchState): void {
       break;
     }
     case 'walkToCenter': {
-      // Actor (the winner) walks from the broken table back to the center
-      // of the ring for the victory pose.
+      // Actor (the winner) walks from the south-ropes launch spot to the
+      // center of the ring for the victory pose. Stays inside the ring.
       const p = 1 - Math.max(0, tb.stageTimer / TABLEBREAK_WALK_DURATION);
-      actor.x = SPOT_TABLE_X - 14 + (RING.cx - (SPOT_TABLE_X - 14)) * p;
-      actor.y = SPOT_TABLE_Y + (RING.cy - SPOT_TABLE_Y) * p;
+      const startX = RING.cx - 4;
+      const startY = RING.cy + RING.halfH - PLAYABLE_INSET - 6;
+      actor.x = startX + (RING.cx - startX) * p;
+      actor.y = startY + (RING.cy - startY) * p;
       actor.facing = RING.cx < actor.x ? -1 : 1;
       if (tb.stageTimer <= 0) {
         actor.x = RING.cx;

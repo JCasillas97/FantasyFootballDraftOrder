@@ -51,8 +51,7 @@ export function MatchScreen() {
     }
 
     let resultsShownAt = 0;
-    const RESULTS_HOLD_MS = 6000; // gold/silver/bronze text takeover
-    const PODIUM_HOLD_MS = 7000; // podium scene after the text
+    const PODIUM_HOLD_MS = 10000; // podium scene only (no separate text takeover)
     drawFrame(ctx, state, roster, sheets, { leagueName, picks: picksRef.current });
 
     // Start the recorder *after* audio tracks are available so they get baked
@@ -167,20 +166,16 @@ export function MatchScreen() {
       const finishedAtAll = state.finished;
       if (finishedAtAll && resultsShownAt === 0) resultsShownAt = now;
       const elapsedSinceFinish = finishedAtAll ? now - resultsShownAt : 0;
-      const showResults = finishedAtAll && elapsedSinceFinish < RESULTS_HOLD_MS;
-      const showPodium =
-        finishedAtAll && elapsedSinceFinish >= RESULTS_HOLD_MS &&
-        elapsedSinceFinish < RESULTS_HOLD_MS + PODIUM_HOLD_MS;
+      const showPodium = finishedAtAll && elapsedSinceFinish < PODIUM_HOLD_MS;
       drawFrame(ctx, state, roster, sheets, {
         leagueName,
         picks: picksRef.current,
-        resultsOverlay: showResults,
         podiumOverlay: showPodium,
         crowdEnergy,
         tableBroken: state.tableBreak?.broken ?? false,
       });
 
-      if (finishedAtAll && elapsedSinceFinish >= RESULTS_HOLD_MS + PODIUM_HOLD_MS) {
+      if (finishedAtAll && elapsedSinceFinish >= PODIUM_HOLD_MS) {
         stopped = true;
         finalize();
         return;

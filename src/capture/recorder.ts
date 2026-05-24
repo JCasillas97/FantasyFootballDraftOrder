@@ -85,9 +85,19 @@ export function startRecording(
   };
 
   const startedAt = performance.now();
-  recorder.start(1000); // 1s chunks so memory doesn't balloon
+  // No timeslice — one continuous recording until stop(). Earlier 1s-chunk
+  // mode was producing truncated videos in some browsers when a chunk got
+  // lost mid-recording.
+  recorder.start();
 
   let stopped = false;
+
+  // Only stop the VIDEO track on cleanup. Audio tracks come from the
+  // app-level AudioContext MediaStreamDestination (shared across matches);
+  // stopping them would kill audio for every subsequent recording.
+  const stopVideoOnly = () => {
+    for (const track of stream.getVideoTracks()) track.stop();
+  };
 
   const stop = (): Promise<RecordingResult> =>
     new Promise((resolve, reject) => {
@@ -96,7 +106,7 @@ export function startRecording(
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: pick.mime.split(';')[0] });
         const duration = (performance.now() - startedAt) / 1000;
-        for (const track of stream.getTracks()) track.stop();
+        stopVideoOnly();
         resolve({ blob, mimeType: pick.mime, isMp4: pick.isMp4, duration });
       };
       recorder.onerror = (e) => reject(e);
@@ -107,7 +117,7 @@ export function startRecording(
   const cancel = () => {
     stopped = true;
     if (recorder.state !== 'inactive') recorder.stop();
-    for (const track of stream.getTracks()) track.stop();
+    stopVideoOnly();
   };
 
   return { stop, cancel };

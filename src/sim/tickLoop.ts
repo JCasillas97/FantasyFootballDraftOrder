@@ -98,6 +98,21 @@ const REGULAR_MOVES: readonly AttackMove[] = [
 const MOUNT_DURATION = 1.6;
 const MOUNT_PUNCH_INTERVAL = 0.32;
 
+const INTRO_DURATION = 3.4;
+const SURPRISE_TRIGGER_SEC = 14; // when the surprise wrestler appears
+const SURPRISE_CATWALK_DURATION = 3.8;
+interface SurpriseState {
+  wrestlerId: number;
+  triggered: boolean;
+  /** 'pending' = waiting offstage. 'walking' = on the catwalk. 'arrived' = entered ring. */
+  stage: 'pending' | 'walking' | 'arrived';
+  stageTimer: number;
+  startX: number;
+  startY: number;
+  ringEntryX: number;
+  ringEntryY: number;
+}
+
 /** Moves that lay the victim flat instead of a quick stun. */
 const BIG_HITS: ReadonlySet<AttackMove> = new Set(['tackle', 'splash', 'topRope', 'clothesline']);
 const DOWNED_DURATION = 1.4;
@@ -201,6 +216,10 @@ export interface MatchState {
   spotlight: SpotlightState | null;
   /** Earlier showstopper: table-break elimination (null = none planned). */
   tableBreak: TableBreakState | null;
+  /** Pre-match intro hold ("ARE YOU READY TO RUMBLE!!!"). */
+  intro: { stage: 'pending' | 'shouting' | 'done'; stageTimer: number };
+  /** Surprise late entrant — comes out on the catwalk mid-match. */
+  surprise: SurpriseState | null;
 }
 
 export interface MatchConfig {
@@ -214,11 +233,35 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
   const scheduler = createSchedulerState(schedule);
   const positions = startingPositions(rosterSize);
   const wrestlers = positions.map(({ x, y, facing }, i) => makeWrestler(i, x, y, facing));
-  // Seed initial wander targets so the first tick has somewhere to go.
   for (const w of wrestlers) {
     const target = pickWanderPoint(rng);
     w.wanderX = target.x;
     w.wanderY = target.y;
+  }
+  // Pick the surprise late entrant deterministically — must be the LAST
+  // wrestler eliminated (the winner) so they're guaranteed alive when they
+  // walk out on the catwalk. They start offscreen at the catwalk's far end.
+  let surprise: SurpriseState | null = null;
+  // Need enough wrestlers and enough match duration to fit a surprise
+  // entrance before the table-break finale fires. Below 6 teams the action
+  // wraps too fast to make a real entrance.
+  if (rosterSize >= 6) {
+    const surpriseId = schedule.eliminationOrder[schedule.eliminationOrder.length - 1];
+    const w = wrestlers[surpriseId];
+    // Park them off-canvas to the right and mark inactive until trigger.
+    w.x = -200;
+    w.y = -200;
+    w.state = 'offstage';
+    surprise = {
+      wrestlerId: surpriseId,
+      triggered: false,
+      stage: 'pending',
+      stageTimer: 0,
+      startX: 12, // far left of canvas (catwalk entry)
+      startY: 80,
+      ringEntryX: ringLeft() + PLAYABLE_INSET + 40,
+      ringEntryY: RING.cy - 30,
+    };
   }
   return {
     t: 0,
@@ -230,6 +273,8 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
     pendingEvents: [{ type: 'matchStart', seed }],
     spotlight: planSpotlight(schedule.eliminationOrder, rng),
     tableBreak: planTableBreak(schedule.eliminationOrder, rng),
+    intro: { stage: 'pending', stageTimer: INTRO_DURATION },
+    surprise,
   };
 }
 
@@ -302,6 +347,54 @@ export function tick(s: MatchState): void {
   if (s.finished) return;
   // Spotlight handling: if an active sequence is in progress, time is paused
   // and the choreography drives the actor/target. Other wrestlers stand still.
+  // Pre-match intro hold: just keep sim time at 0 while the "ARE YOU READY
+  // TO RUMBLE" screen plays. Drains a wall-clock timer; doesn't advance s.t.
+  if (s.intro.stage === 'pending') {
+    s.intro.stage = 'shouting';
+  }
+  if (s.intro.stage === 'shouting') {
+    s.intro.stageTimer -= TICK_DT;
+    if (s.intro.stageTimer <= 0) s.intro.stage = 'done';
+    return;
+  }
+
+  // Surprise late entrant choreography: walks out on the catwalk and into
+  // the ring. Other wrestlers continue brawling normally (no pause).
+  if (s.surprise && !s.surprise.triggered && s.t >= SURPRISE_TRIGGER_SEC) {
+    s.surprise.triggered = true;
+    s.surprise.stage = 'walking';
+    s.surprise.stageTimer = SURPRISE_CATWALK_DURATION;
+    const w = s.wrestlers[s.surprise.wrestlerId];
+    w.x = s.surprise.startX;
+    w.y = s.surprise.startY;
+    w.state = 'entering';
+    w.vx = 0;
+    w.vy = 0;
+    s.pendingEvents.push({
+      type: 'spotlight',
+      stage: 'climb',
+      actor: s.surprise.wrestlerId,
+      target: s.surprise.wrestlerId,
+    });
+  }
+  if (s.surprise && s.surprise.stage === 'walking') {
+    s.surprise.stageTimer -= TICK_DT;
+    const p = 1 - Math.max(0, s.surprise.stageTimer / SURPRISE_CATWALK_DURATION);
+    const w = s.wrestlers[s.surprise.wrestlerId];
+    w.x = s.surprise.startX + (s.surprise.ringEntryX - s.surprise.startX) * p;
+    w.y = s.surprise.startY + (s.surprise.ringEntryY - s.surprise.startY) * p;
+    w.facing = 1;
+    if (s.surprise.stageTimer <= 0) {
+      s.surprise.stage = 'arrived';
+      w.state = 'wandering';
+      w.x = s.surprise.ringEntryX;
+      w.y = s.surprise.ringEntryY;
+      const wp = pickWanderPoint(s.rng);
+      w.wanderX = wp.x;
+      w.wanderY = wp.y;
+    }
+  }
+
   if (s.spotlight && s.spotlight.stage !== 'pending' && s.spotlight.stage !== 'done') {
     spotlightTick(s);
     return;
@@ -344,7 +437,9 @@ export function tick(s: MatchState): void {
         w.state = 'wandering';
         break;
       case 'celebrating':
-        // Driven by the table-break sequence; no per-tick work here.
+      case 'offstage':
+      case 'entering':
+        // Driven by external sequences (table-break, surprise entrance).
         break;
       case 'mounting':
         mountStep(w, s);

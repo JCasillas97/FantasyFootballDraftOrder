@@ -12,7 +12,8 @@ export type WrestlerState =
   | 'recovering'
   | 'nearRope'
   | 'beingEliminated'
-  | 'eliminated';
+  | 'eliminated'
+  | 'celebrating';
 
 export type AttackMove =
   | 'punch'

@@ -94,13 +94,23 @@ export function clampToCanvas(x: number, y: number): { x: number; y: number } {
  * Clamp to the floor band — the concrete strip between the ropes and the
  * barricades. Eliminated bodies land here, not in the crowd. Wrestlers may
  * cross the ropes outward (the elimination toss does this) but they hit the
- * barricade at FLOOR_BAND distance and stop.
+ * barricade at FLOOR_BAND distance and stop. Also excludes the announcer
+ * table footprint so regular eliminations don't pile up on the table —
+ * that's reserved for the table-smash event.
  */
 export function clampToFloor(x: number, y: number, r: Ring = RING): { x: number; y: number } {
-  return {
-    x: Math.max(ringLeft(r) - FLOOR_BAND + 6, Math.min(ringRight(r) + FLOOR_BAND - 6, x)),
-    y: Math.max(ringTop(r) - FLOOR_BAND + 6, Math.min(ringBottom(r) + FLOOR_BAND - 6, y)),
-  };
+  let cx = Math.max(ringLeft(r) - FLOOR_BAND + 6, Math.min(ringRight(r) + FLOOR_BAND - 6, x));
+  let cy = Math.max(ringTop(r) - FLOOR_BAND + 6, Math.min(ringBottom(r) + FLOOR_BAND - 6, y));
+  // Push out of the announcer table zone.
+  const tableLeft = r.cx - 95;
+  const tableRight = r.cx + 95;
+  const tableTop = r.cy + r.halfH + 14;
+  if (cx >= tableLeft && cx <= tableRight && cy >= tableTop) {
+    // Closer to left or right edge of the table?
+    if (cx < r.cx) cx = tableLeft - 6;
+    else cx = tableRight + 6;
+  }
+  return { x: cx, y: cy };
 }
 
 /** Direction vector from (x,y) toward the nearest rope edge, normalized. */

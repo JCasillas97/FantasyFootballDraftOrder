@@ -19,7 +19,7 @@ import {
 export const SPRITE_W = 24;
 export const SPRITE_H = 32;
 export const SPRITE_COLS = 4;
-export const SPRITE_ROWS = 7;
+export const SPRITE_ROWS = 8;
 export const SHEET_W = SPRITE_W * SPRITE_COLS;
 export const SHEET_H = SPRITE_H * SPRITE_ROWS;
 
@@ -31,6 +31,7 @@ export enum Animation {
   Eliminated = 4,
   Kick = 5,
   TopRope = 6,
+  Celebrate = 7,
 }
 
 /** Compose an avatar into a baked sprite sheet. Run once per match. */
@@ -112,6 +113,13 @@ function getPose(anim: Animation, frame: number): Pose {
         rotation: Math.PI / 2,
         flatten: true,
         raiseArms: false,
+      };
+    case Animation.Celebrate:
+      // Arms up; small jumping bob per frame so the winner looks alive.
+      return {
+        ...base,
+        raiseArms: true,
+        bodyBob: frame % 2 === 0 ? -2 : 0,
       };
   }
 }

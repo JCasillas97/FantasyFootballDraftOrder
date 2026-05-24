@@ -26,6 +26,7 @@ export interface FrameOptions {
   leagueName?: string;
   picks?: readonly DraftPickLite[];
   resultsOverlay?: boolean;
+  podiumOverlay?: boolean;
   /** Crowd liveliness 0..1+ (>1 = peak eruption). */
   crowdEnergy?: number;
   /** Whether the spot table has been smashed. */
@@ -43,12 +44,15 @@ export function drawFrame(
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
   drawCrowd(ctx, opts.crowdEnergy ?? 0, opts.tableBroken ?? false);
-  drawRing(ctx, opts.leagueName ?? '');
+  drawRing(ctx, opts.leagueName ?? '', computeRopeBounce(state));
   drawWrestlers(ctx, state, roster, sheets);
   drawHud(ctx, state);
   if (opts.picks) drawDraftOverlay(ctx, opts.picks, roster);
   if (opts.resultsOverlay) {
     drawResultsOverlay(ctx, state.scheduler.schedule.eliminationOrder, roster);
+  }
+  if (opts.podiumOverlay) {
+    drawPodiumOverlay(ctx, state.scheduler.schedule.eliminationOrder, roster, sheets);
   }
 }
 
@@ -155,6 +159,149 @@ function drawResultsOverlay(
     ctx.fillText(`${pick}. ${nameFor(idx)}`, CANVAS_W / 2, y);
     y += 19;
     if (y > CANVAS_H - 14) break;
+  }
+}
+
+/**
+ * Podium scene: three steps with top-3 wrestlers standing on them, 4..N
+ * shuffling around in the background looking beat up. Drawn over a dimmed
+ * stadium so it reads as a separate "trophy ceremony" frame.
+ */
+function drawPodiumOverlay(
+  ctx: CanvasRenderingContext2D,
+  eliminationOrder: readonly number[],
+  roster: readonly Player[],
+  sheets: SpriteSheets,
+): void {
+  ctx.fillStyle = 'rgba(8, 4, 18, 0.92)';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // Background spotlight cone
+  ctx.fillStyle = 'rgba(255, 220, 100, 0.06)';
+  ctx.beginPath();
+  ctx.moveTo(CANVAS_W / 2 - 240, 0);
+  ctx.lineTo(CANVAS_W / 2 + 240, 0);
+  ctx.lineTo(CANVAS_W / 2 + 160, CANVAS_H);
+  ctx.lineTo(CANVAS_W / 2 - 160, CANVAS_H);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold 28px ui-monospace, monospace';
+  ctx.fillText('FINAL PODIUM', CANVAS_W / 2, 14);
+
+  const N = eliminationOrder.length;
+  const nameOf = (idx: number) => {
+    const id = eliminationOrder[idx];
+    return roster[id] ? displayName(roster[id], id) : `Player ${id + 1}`;
+  };
+
+  // -------- Background row: 4..N moping --------
+  const losers: number[] = [];
+  for (let pick = 4; pick <= N; pick++) {
+    const idx = N - pick;
+    if (idx < 0) break;
+    losers.push(eliminationOrder[idx]);
+  }
+  const wallSec = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
+  const bgScale = 1.4;
+  const bgW = SPRITE_W * bgScale;
+  const bgH = SPRITE_H * bgScale;
+  const bgY = 70;
+  const usableW = CANVAS_W - 60;
+  const gap = losers.length > 0 ? usableW / losers.length : 0;
+  losers.forEach((id, i) => {
+    const sheet = sheets.get(id);
+    if (!sheet) return;
+    const cx = 30 + gap * i + gap / 2;
+    const bob = Math.round(Math.sin((wallSec + i * 0.3) * 1.8) * 1);
+    // Idle frame
+    ctx.drawImage(
+      sheet,
+      0,
+      Animation.Idle * SPRITE_H,
+      SPRITE_W,
+      SPRITE_H,
+      cx - bgW / 2,
+      bgY + bob,
+      bgW,
+      bgH,
+    );
+    // Battle damage decals: red blood specks + white bandage strips.
+    const seed = (id * 31) >>> 0;
+    for (let k = 0; k < 4; k++) {
+      const hx = ((seed + k * 17) % 16) - 8;
+      const hy = ((seed + k * 23) % 20) - 4;
+      ctx.fillStyle = '#cc1010';
+      ctx.fillRect(cx + hx, bgY + bob + 14 + hy, 2, 2);
+    }
+    // Forehead bandage
+    if ((seed & 1) === 1) {
+      ctx.fillStyle = '#e8e8d8';
+      ctx.fillRect(cx - 7, bgY + bob + 6, 14, 2);
+      ctx.fillStyle = '#a85040';
+      ctx.fillRect(cx - 2, bgY + bob + 6, 4, 2); // bloody patch
+    }
+    // Arm sling
+    if ((seed & 2) === 2) {
+      ctx.fillStyle = '#e8e8d8';
+      ctx.fillRect(cx - 9, bgY + bob + 24, 6, 8);
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.fillText(displayName(roster[id], id), cx, bgY + bgH + 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillText(`#${i + 4}`, cx, bgY + bgH + 14);
+  });
+
+  // -------- Foreground: three podium steps --------
+  const podiumY = CANVAS_H - 30;
+  const steps: Array<{ rank: 1 | 2 | 3; cx: number; height: number; color: string; ringColor: string }> = [
+    { rank: 2, cx: CANVAS_W / 2 - 140, height: 80, color: '#c8c8d0', ringColor: '#d8d8d8' },
+    { rank: 1, cx: CANVAS_W / 2, height: 120, color: '#d4a020', ringColor: '#ffd700' },
+    { rank: 3, cx: CANVAS_W / 2 + 140, height: 60, color: '#a47038', ringColor: '#cd7f32' },
+  ];
+  const fgScale = 2.4;
+  const fgW = SPRITE_W * fgScale;
+  const fgH = SPRITE_H * fgScale;
+  for (const step of steps) {
+    const stepW = 110;
+    const stepY = podiumY - step.height;
+    // Step block
+    ctx.fillStyle = step.color;
+    ctx.fillRect(step.cx - stepW / 2, stepY, stepW, step.height);
+    ctx.fillStyle = '#0a0a14';
+    ctx.fillRect(step.cx - stepW / 2, stepY, stepW, 3);
+    // Rank label on the step
+    ctx.fillStyle = step.ringColor;
+    ctx.font = 'bold 30px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(step.rank), step.cx, stepY + step.height / 2 - 18);
+    // Wrestler standing on top, idle
+    if (N >= step.rank) {
+      const id = eliminationOrder[N - step.rank];
+      const sheet = sheets.get(id);
+      const bob = Math.round(Math.sin((wallSec + step.rank * 0.4) * 2.4) * 2);
+      if (sheet) {
+        ctx.drawImage(
+          sheet,
+          0,
+          Animation.Celebrate * SPRITE_H,
+          SPRITE_W,
+          SPRITE_H,
+          step.cx - fgW / 2,
+          stepY - fgH + bob,
+          fgW,
+          fgH,
+        );
+      }
+      // Name label above the wrestler
+      ctx.fillStyle = step.ringColor;
+      ctx.font = 'bold 14px ui-monospace, monospace';
+      ctx.fillText(nameOf(N - step.rank), step.cx, stepY - fgH - 16);
+    }
   }
 }
 
@@ -279,23 +426,24 @@ function drawAnnouncerTable(
   wallSec: number,
   broken: boolean,
 ): void {
-  const tableY = ringBottom + 18;
-  const tableLeft = ringLeft + RING.halfW - 90;
-  const tableW = 180;
+  // Bigger table for proportionality with the (48x64px) wrestler sprites.
+  const tableY = ringBottom + 22;
+  const tableLeft = ringLeft + RING.halfW - 130;
+  const tableW = 260;
 
   if (broken) {
     // Two halves splayed apart; toppled mic stands; splintered middle.
     ctx.fillStyle = '#5a3a20';
-    ctx.fillRect(tableLeft - 8, tableY + 4, tableW / 2 - 8, 10);
+    ctx.fillRect(tableLeft - 10, tableY + 6, tableW / 2 - 12, 14);
     ctx.fillStyle = '#7a5230';
-    ctx.fillRect(tableLeft - 8, tableY + 2, tableW / 2 - 8, 3);
+    ctx.fillRect(tableLeft - 10, tableY + 3, tableW / 2 - 12, 4);
     ctx.fillStyle = '#5a3a20';
-    ctx.fillRect(tableLeft + tableW / 2 + 8, tableY + 4, tableW / 2 - 8, 10);
+    ctx.fillRect(tableLeft + tableW / 2 + 12, tableY + 6, tableW / 2 - 12, 14);
     ctx.fillStyle = '#7a5230';
-    ctx.fillRect(tableLeft + tableW / 2 + 8, tableY + 2, tableW / 2 - 8, 3);
+    ctx.fillRect(tableLeft + tableW / 2 + 12, tableY + 3, tableW / 2 - 12, 4);
     // Splintered middle gap
     ctx.fillStyle = '#3a2515';
-    ctx.fillRect(tableLeft + tableW / 2 - 8, tableY + 10, 16, 5);
+    ctx.fillRect(tableLeft + tableW / 2 - 12, tableY + 14, 24, 7);
     ctx.fillStyle = '#8a6238';
     ctx.fillRect(tableLeft + tableW / 2 - 5, tableY + 6, 1, 6);
     ctx.fillRect(tableLeft + tableW / 2 - 1, tableY + 6, 1, 6);
@@ -320,51 +468,51 @@ function drawAnnouncerTable(
       shirt: string,
       phase: number,
     ) => {
-      const jump = Math.round(Math.abs(Math.sin((wallSec + phase) * 9)) * 4);
+      const jump = Math.round(Math.abs(Math.sin((wallSec + phase) * 9)) * 6);
       const handFlail = Math.sin((wallSec + phase) * 12) > 0;
-      // Heads/shoulders pop up above where the table used to be.
+      // Shoulders/torso visible above the wreckage.
       ctx.fillStyle = shirt;
-      ctx.fillRect(cx - 6, tableY - 6 - jump, 12, 6);
+      ctx.fillRect(cx - 10, tableY - 8 - jump, 20, 10);
       ctx.fillStyle = skin;
-      ctx.fillRect(cx - 1, tableY - 9 - jump, 3, 3);
-      ctx.fillRect(cx - 5, tableY - 17 - jump, 10, 8);
+      ctx.fillRect(cx - 2, tableY - 13 - jump, 5, 5);
+      ctx.fillRect(cx - 8, tableY - 26 - jump, 16, 14);
       ctx.fillStyle = hair;
-      ctx.fillRect(cx - 5, tableY - 18 - jump, 10, 2);
-      ctx.fillRect(cx - 6, tableY - 16 - jump, 1, 3);
-      ctx.fillRect(cx + 5, tableY - 16 - jump, 1, 3);
+      ctx.fillRect(cx - 8, tableY - 28 - jump, 16, 4);
+      ctx.fillRect(cx - 10, tableY - 25 - jump, 2, 5);
+      ctx.fillRect(cx + 8, tableY - 25 - jump, 2, 5);
       // Eyes — wide open.
       ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(cx - 3, tableY - 13 - jump, 1, 2);
-      ctx.fillRect(cx + 2, tableY - 13 - jump, 1, 2);
+      ctx.fillRect(cx - 5, tableY - 20 - jump, 3, 3);
+      ctx.fillRect(cx + 2, tableY - 20 - jump, 3, 3);
       // Open mouth (shouting).
       ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(cx - 1, tableY - 10 - jump, 3, 2);
+      ctx.fillRect(cx - 3, tableY - 15 - jump, 6, 3);
       // Both hands UP — flailing.
       ctx.fillStyle = skin;
-      const lH = handFlail ? -3 : -1;
-      const rH = handFlail ? -1 : -3;
-      ctx.fillRect(cx - 9, tableY - 14 - jump + lH, 2, 6);
-      ctx.fillRect(cx + 7, tableY - 14 - jump + rH, 2, 6);
+      const lH = handFlail ? -5 : -1;
+      const rH = handFlail ? -1 : -5;
+      ctx.fillRect(cx - 14, tableY - 22 - jump + lH, 3, 10);
+      ctx.fillRect(cx + 11, tableY - 22 - jump + rH, 3, 10);
     };
-    freakOut(tableLeft + 36, '#cc9264', '#3a2418', '#222244', 0);
-    freakOut(tableLeft + tableW - 36, '#a87044', '#1a1a1a', '#552222', 0.5);
+    freakOut(tableLeft + 60, '#cc9264', '#3a2418', '#222244', 0);
+    freakOut(tableLeft + tableW - 60, '#a87044', '#1a1a1a', '#552222', 0.5);
     return;
   }
 
   // ---- Intact table ----
   ctx.fillStyle = '#5a3a20';
-  ctx.fillRect(tableLeft, tableY, tableW, 12);
+  ctx.fillRect(tableLeft, tableY, tableW, 16);
   ctx.fillStyle = '#3a2515';
-  ctx.fillRect(tableLeft, tableY + 10, tableW, 2);
+  ctx.fillRect(tableLeft, tableY + 14, tableW, 2);
   // Black skirt
   ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(tableLeft, tableY + 12, tableW, 18);
-  // Two mic stands
+  ctx.fillRect(tableLeft, tableY + 16, tableW, 22);
+  // Two taller mic stands
   ctx.fillStyle = '#aaaaaa';
-  ctx.fillRect(tableLeft + 36, tableY - 8, 1, 8);
-  ctx.fillRect(tableLeft + tableW - 36, tableY - 8, 1, 8);
-  ctx.fillRect(tableLeft + 35, tableY - 10, 3, 3);
-  ctx.fillRect(tableLeft + tableW - 37, tableY - 10, 3, 3);
+  ctx.fillRect(tableLeft + 52, tableY - 14, 2, 14);
+  ctx.fillRect(tableLeft + tableW - 54, tableY - 14, 2, 14);
+  ctx.fillRect(tableLeft + 50, tableY - 18, 5, 5);
+  ctx.fillRect(tableLeft + tableW - 56, tableY - 18, 5, 5);
 
   const commentator = (
     cx: number,
@@ -373,48 +521,105 @@ function drawAnnouncerTable(
     shirt: string,
     phase: number,
   ) => {
-    const bob = Math.round(Math.sin((wallSec + phase) * 3.2) * 0.6);
+    const bob = Math.round(Math.sin((wallSec + phase) * 3.2) * 0.8);
     const handUp = energy > 0.6 && Math.sin((wallSec + phase) * 4) > 0.3;
-    // Shoulders/shirt (visible above table)
+    // Shoulders/shirt (bigger so it reads at sprite scale)
     ctx.fillStyle = shirt;
-    ctx.fillRect(cx - 6, tableY - 6 + bob, 12, 6);
+    ctx.fillRect(cx - 10, tableY - 8 + bob, 20, 10);
     // Neck
     ctx.fillStyle = skin;
-    ctx.fillRect(cx - 1, tableY - 9 + bob, 3, 3);
+    ctx.fillRect(cx - 2, tableY - 13 + bob, 5, 5);
     // Head
-    ctx.fillRect(cx - 5, tableY - 17 + bob, 10, 8);
+    ctx.fillRect(cx - 8, tableY - 26 + bob, 16, 14);
     // Hair on top
     ctx.fillStyle = hair;
-    ctx.fillRect(cx - 5, tableY - 18 + bob, 10, 2);
-    ctx.fillRect(cx - 6, tableY - 16 + bob, 1, 3); // sideburn
-    ctx.fillRect(cx + 5, tableY - 16 + bob, 1, 3);
+    ctx.fillRect(cx - 8, tableY - 28 + bob, 16, 4);
+    ctx.fillRect(cx - 10, tableY - 25 + bob, 2, 5); // sideburn left
+    ctx.fillRect(cx + 8, tableY - 25 + bob, 2, 5);
     // Eyes
     ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(cx - 3, tableY - 13 + bob, 1, 1);
-    ctx.fillRect(cx + 2, tableY - 13 + bob, 1, 1);
+    ctx.fillRect(cx - 5, tableY - 20 + bob, 2, 2);
+    ctx.fillRect(cx + 3, tableY - 20 + bob, 2, 2);
     // Mouth — open when bob is up (talking effect)
-    if (bob === 0) {
-      ctx.fillRect(cx - 1, tableY - 11 + bob, 3, 1);
+    if (bob <= 0) {
+      ctx.fillRect(cx - 2, tableY - 16 + bob, 5, 2);
     } else {
-      ctx.fillRect(cx - 1, tableY - 11 + bob, 2, 1);
+      ctx.fillRect(cx - 2, tableY - 16 + bob, 4, 1);
     }
     // Headset
     ctx.fillStyle = '#222233';
-    ctx.fillRect(cx - 5, tableY - 19 + bob, 10, 1);
-    ctx.fillRect(cx - 6, tableY - 14 + bob, 1, 2); // ear cup left
-    ctx.fillRect(cx + 5, tableY - 14 + bob, 1, 2); // ear cup right
+    ctx.fillRect(cx - 8, tableY - 30 + bob, 16, 2);
+    ctx.fillRect(cx - 10, tableY - 22 + bob, 2, 4); // ear cup left
+    ctx.fillRect(cx + 8, tableY - 22 + bob, 2, 4); // ear cup right
     // Hand raised during eruption
     if (handUp) {
       ctx.fillStyle = skin;
-      ctx.fillRect(cx - 9, tableY - 12 + bob, 2, 5);
+      ctx.fillRect(cx - 14, tableY - 18 + bob, 3, 9);
     }
   };
 
-  commentator(tableLeft + 36, '#cc9264', '#3a2418', '#222244', 0);
-  commentator(tableLeft + tableW - 36, '#a87044', '#1a1a1a', '#552222', 0.5);
+  commentator(tableLeft + 60, '#cc9264', '#3a2418', '#222244', 0);
+  commentator(tableLeft + tableW - 60, '#a87044', '#1a1a1a', '#552222', 0.5);
 }
 
-function drawRing(ctx: CanvasRenderingContext2D, leagueName: string): void {
+interface RopeBounce {
+  side: 'top' | 'bottom' | 'left' | 'right';
+  pos: number; // position along the rope (canvas pixels)
+  bulge: number; // pixels of inward stretch
+}
+
+/**
+ * Detect a clothesline-bouncing wrestler and compute how much the nearest
+ * rope should stretch inward (slingshot). Bulge peaks during the bounce
+ * phase (animPhase 0.40-0.55).
+ */
+function computeRopeBounce(state: MatchState): RopeBounce | null {
+  for (const w of state.wrestlers) {
+    if (w.state !== 'attacking' || w.attackMove !== 'clothesline') continue;
+    if (w.animPhase < 0.2 || w.animPhase > 0.6) continue;
+    // Pick the nearest rope side (the one the wrestler is heading into).
+    const left = RING.cx - RING.halfW;
+    const right = RING.cx + RING.halfW;
+    const top = RING.cy - RING.halfH;
+    const bottom = RING.cy + RING.halfH;
+    const distLeft = w.x - left;
+    const distRight = right - w.x;
+    const distTop = w.y - top;
+    const distBottom = bottom - w.y;
+    const minD = Math.min(distLeft, distRight, distTop, distBottom);
+    let side: 'left' | 'right' | 'top' | 'bottom';
+    let pos: number;
+    if (minD === distLeft) {
+      side = 'left';
+      pos = w.y;
+    } else if (minD === distRight) {
+      side = 'right';
+      pos = w.y;
+    } else if (minD === distTop) {
+      side = 'top';
+      pos = w.x;
+    } else {
+      side = 'bottom';
+      pos = w.x;
+    }
+    // Bulge bell curve: rises during charge, peaks at the bounce, falls off.
+    // Phase 0.20..0.40: rising. 0.40..0.50: peak. 0.50..0.60: snap-back.
+    const phase = w.animPhase;
+    let bulge: number;
+    if (phase < 0.45) bulge = ((phase - 0.2) / 0.25) * 14;
+    else if (phase < 0.55) bulge = 14 - ((phase - 0.45) / 0.1) * 18; // snap past flat
+    else bulge = -4 + ((phase - 0.55) / 0.05) * 4;
+    bulge = Math.max(-6, Math.min(20, bulge));
+    return { side, pos, bulge };
+  }
+  return null;
+}
+
+function drawRing(
+  ctx: CanvasRenderingContext2D,
+  leagueName: string,
+  rb: RopeBounce | null,
+): void {
   const left = RING.cx - RING.halfW;
   const top = RING.cy - RING.halfH;
   const w = RING.halfW * 2;
@@ -441,15 +646,61 @@ function drawRing(ctx: CanvasRenderingContext2D, leagueName: string): void {
     ctx.restore();
   }
 
-  // Ropes
+  // Ropes — drawn as polylines so they can bulge inward for the clothesline
+  // slingshot. Each rope on each side gets a triangular V-pinch at the bounce
+  // point, peak inward at rb.bulge pixels.
   const ropeColors = ['#cc3030', '#cc8030', '#30cc60'];
+  const drawRope = (
+    pts: ReadonlyArray<[number, number]>,
+    color: string,
+    thick: number,
+  ) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thick;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.stroke();
+  };
+  const PINCH_HALFW = 28; // how wide the V is along the rope
+  const sidePoints = (
+    side: 'top' | 'bottom' | 'left' | 'right',
+    offset: number,
+  ): Array<[number, number]> => {
+    // Horizontal ropes (top/bottom): two endpoints at the corners, plus
+    // optional bulge point. Vertical ropes (left/right): similar.
+    if (side === 'top' || side === 'bottom') {
+      const ropeY = side === 'top' ? top + offset : top + h - offset;
+      const pts: Array<[number, number]> = [[left - 4, ropeY]];
+      if (rb && rb.side === side) {
+        const bp = Math.max(left + 6, Math.min(left + w - 6, rb.pos));
+        const inward = side === 'top' ? rb.bulge : -rb.bulge;
+        pts.push([bp - PINCH_HALFW, ropeY]);
+        pts.push([bp, ropeY + inward]);
+        pts.push([bp + PINCH_HALFW, ropeY]);
+      }
+      pts.push([left + w + 4, ropeY]);
+      return pts;
+    }
+    const ropeX = side === 'left' ? left + offset : left + w - offset;
+    const pts: Array<[number, number]> = [[ropeX, top - 4]];
+    if (rb && rb.side === side) {
+      const bp = Math.max(top + 6, Math.min(top + h - 6, rb.pos));
+      const inward = side === 'left' ? rb.bulge : -rb.bulge;
+      pts.push([ropeX, bp - PINCH_HALFW]);
+      pts.push([ropeX + inward, bp]);
+      pts.push([ropeX, bp + PINCH_HALFW]);
+    }
+    pts.push([ropeX, top + h + 4]);
+    return pts;
+  };
+
   for (let i = 0; i < 3; i++) {
-    const offset = ROPE_BAND - i * 6;
-    ctx.fillStyle = ropeColors[i];
-    ctx.fillRect(left - 4, top + offset, w + 8, 2);
-    ctx.fillRect(left - 4, top + h - offset, w + 8, 2);
-    ctx.fillRect(left + offset, top - 4, 2, h + 8);
-    ctx.fillRect(left + w - offset, top - 4, 2, h + 8);
+    const off = ROPE_BAND - i * 6;
+    drawRope(sidePoints('top', off), ropeColors[i], 2);
+    drawRope(sidePoints('bottom', off), ropeColors[i], 2);
+    drawRope(sidePoints('left', off), ropeColors[i], 2);
+    drawRope(sidePoints('right', off), ropeColors[i], 2);
   }
 
   // Turnbuckles

@@ -58,9 +58,15 @@ export function startRecording(
   const pick = pickBestMimeType();
   if (!pick) return null;
 
-  const fps = opts.fps ?? 60;
   const videoBitsPerSecond = opts.videoBitsPerSecond ?? 1_200_000;
-  const stream = canvas.captureStream(fps);
+  // Capture at the canvas's natural update rate rather than forcing a target
+  // FPS. Some setups (high refresh displays, throttled tabs) caused timing
+  // mismatches when a fixed 60fps was requested — the encoded video played
+  // back faster than realtime. Passing no rate lets the browser sync output
+  // frames to actual canvas updates.
+  const stream = (canvas as HTMLCanvasElement & {
+    captureStream(fps?: number): MediaStream;
+  }).captureStream();
   for (const track of opts.audioTracks ?? []) {
     stream.addTrack(track);
   }

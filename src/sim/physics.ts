@@ -71,7 +71,7 @@ export const FLOOR_BAND = 60;
  * the commentators' desk. Same coordinates used by the renderer.
  */
 export const SPOT_TABLE_X = RING.cx;
-export const SPOT_TABLE_Y = RING.cy + RING.halfH + 24;
+export const SPOT_TABLE_Y = RING.cy + RING.halfH + 44;
 
 /**
  * Clamp to the visible canvas (with sprite-size margin) so that wrestlers

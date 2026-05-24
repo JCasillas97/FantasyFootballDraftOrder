@@ -44,6 +44,7 @@ export function drawFrame(
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
   drawCrowd(ctx, opts.crowdEnergy ?? 0, opts.tableBroken ?? false);
+  drawCatwalk(ctx);
   drawRing(ctx, opts.leagueName ?? '', computeRopeBounce(state));
   drawWrestlers(ctx, state, roster, sheets);
   drawHud(ctx, state);
@@ -53,6 +54,15 @@ export function drawFrame(
   }
   if (opts.podiumOverlay) {
     drawPodiumOverlay(ctx, state.scheduler.schedule.eliminationOrder, roster, sheets);
+  }
+  if (state.intro.stage === 'shouting') {
+    drawIntroOverlay(ctx, state.intro.stageTimer, opts.leagueName ?? '');
+  }
+  // Surprise wrestler announcement during catwalk walk
+  if (state.surprise && state.surprise.stage === 'walking') {
+    const w = roster[state.surprise.wrestlerId];
+    const name = w ? displayName(w, state.surprise.wrestlerId) : '???';
+    drawSurpriseBanner(ctx, name);
   }
 }
 
@@ -198,7 +208,29 @@ function drawPodiumOverlay(
     return roster[id] ? displayName(roster[id], id) : `Player ${id + 1}`;
   };
 
-  // -------- Background row: 4..N moping --------
+  // -------- Right-side pick list (plain text, no gold/silver/bronze) --------
+  let listY = 60;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(CANVAS_W - 180, 52, 174, 22 + N * 15);
+  ctx.strokeStyle = '#3a3a55';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(CANVAS_W - 180.5, 52.5, 173, 21 + N * 15);
+  ctx.fillStyle = '#d8d8d8';
+  ctx.font = 'bold 11px ui-monospace, monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('DRAFT ORDER', CANVAS_W - 168, 58);
+  ctx.font = '11px ui-monospace, monospace';
+  ctx.fillStyle = '#f0f0ff';
+  listY = 76;
+  for (let pick = 1; pick <= N; pick++) {
+    const idx = N - pick;
+    if (idx < 0) break;
+    ctx.fillText(`${pick}.  ${nameOf(idx)}`, CANVAS_W - 168, listY);
+    listY += 15;
+  }
+  ctx.textAlign = 'center';
+
+  // -------- Background row: 4..N moping (constrained to left side now) ----
   const losers: number[] = [];
   for (let pick = 4; pick <= N; pick++) {
     const idx = N - pick;
@@ -210,7 +242,7 @@ function drawPodiumOverlay(
   const bgW = SPRITE_W * bgScale;
   const bgH = SPRITE_H * bgScale;
   const bgY = 70;
-  const usableW = CANVAS_W - 60;
+  const usableW = CANVAS_W - 240; // leave room for the right-side list
   const gap = losers.length > 0 ? usableW / losers.length : 0;
   losers.forEach((id, i) => {
     const sheet = sheets.get(id);
@@ -305,6 +337,97 @@ function drawPodiumOverlay(
   }
 }
 
+/**
+ * Entrance ramp on the left side leading to the ring. Wrestlers walk down
+ * this when they make a surprise entrance.
+ */
+function drawCatwalk(ctx: CanvasRenderingContext2D): void {
+  const ringLeftEdge = RING.cx - RING.halfW;
+  const ringTopEdge = RING.cy - RING.halfH;
+  // Ramp polygon from offstage left corner down to the ring's left rope.
+  const x0 = 0;
+  const y0 = 60;
+  const y1 = 110;
+  ctx.fillStyle = '#1f1f33';
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 8);
+  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 28);
+  ctx.lineTo(x0, y1);
+  ctx.closePath();
+  ctx.fill();
+  // Carpet stripe down the middle
+  ctx.fillStyle = '#aa3030';
+  ctx.beginPath();
+  ctx.moveTo(x0, y0 + 18);
+  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 14);
+  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 22);
+  ctx.lineTo(x0, y1 - 18);
+  ctx.closePath();
+  ctx.fill();
+  // Edge rails
+  ctx.strokeStyle = '#ffcc00';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 8);
+  ctx.moveTo(x0, y1);
+  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 28);
+  ctx.stroke();
+}
+
+/**
+ * "ARE YOU READY TO RUMBLE!!!" pre-match takeover. Faded as the intro
+ * timer counts down so the action becomes visible smoothly.
+ */
+function drawIntroOverlay(
+  ctx: CanvasRenderingContext2D,
+  remaining: number,
+  leagueName: string,
+): void {
+  const fade = Math.max(0, Math.min(1, remaining / 0.6));
+  ctx.fillStyle = `rgba(0, 0, 0, ${0.7 * Math.max(fade, 0.5)})`;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  // League name top
+  if (leagueName.trim()) {
+    ctx.fillStyle = `rgba(255, 204, 0, ${fade})`;
+    ctx.font = 'bold 22px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(leagueName.trim().toUpperCase(), CANVAS_W / 2, 90);
+  }
+  // Big shouty text
+  ctx.fillStyle = `rgba(255, 80, 80, ${fade})`;
+  ctx.font = 'bold 56px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Slight wobble on the text for excitement
+  const wallSec = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
+  const wob = Math.sin(wallSec * 9) * 2;
+  ctx.fillText('ARE YOU READY', CANVAS_W / 2, CANVAS_H / 2 - 36 + wob);
+  ctx.fillStyle = `rgba(255, 204, 0, ${fade})`;
+  ctx.fillText('TO RUMBLE!!!', CANVAS_W / 2, CANVAS_H / 2 + 30 - wob);
+}
+
+/**
+ * Banner across the top during the surprise wrestler's catwalk walk:
+ * "NOW INTRODUCING: {name}!"
+ */
+function drawSurpriseBanner(ctx: CanvasRenderingContext2D, name: string): void {
+  const bannerY = 26;
+  const bannerH = 32;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+  ctx.fillRect(60, bannerY, CANVAS_W - 120, bannerH);
+  ctx.strokeStyle = '#ffcc00';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(61, bannerY + 1, CANVAS_W - 122, bannerH - 2);
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = 'bold 16px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`>> NOW INTRODUCING:  ${name.toUpperCase()}  <<`, CANVAS_W / 2, bannerY + bannerH / 2);
+}
+
 function drawCrowd(ctx: CanvasRenderingContext2D, energy: number, tableBroken: boolean): void {
   // Arena floor (concrete around the ring).
   ctx.fillStyle = '#262638';
@@ -361,9 +484,14 @@ function drawCrowd(ctx: CanvasRenderingContext2D, energy: number, tableBroken: b
   for (let row = 0; row < ringTop - FLOOR_BAND - 4; row += 9) {
     drawCrowdRow(2, CANVAS_W - 2, row, row);
   }
-  // Bottom crowd: multiple rows
+  // Bottom crowd: multiple rows. The announcer table sits in the middle of
+  // this band, so we draw crowd on the left and right of the table only —
+  // no fans behind/under the desk.
+  const tableLeftEdge = RING.cx - 135;
+  const tableRightEdge = RING.cx + 135;
   for (let row = ringBottom + FLOOR_BAND + 4; row < CANVAS_H - 6; row += 9) {
-    drawCrowdRow(2, CANVAS_W - 2, row, row + 100);
+    drawCrowdRow(2, tableLeftEdge - 4, row, row + 100);
+    drawCrowdRow(tableRightEdge + 4, CANVAS_W - 2, row, row + 200);
   }
   // Left crowd: vertical strips
   for (let row = 0; row < CANVAS_H; row += 9) {
@@ -731,6 +859,8 @@ function drawWrestlers(
   });
 
   for (const w of sorted) {
+    // Skip wrestlers who haven't entered yet (waiting backstage).
+    if (w.state === 'offstage') continue;
     const sheet = sheets.get(w.id);
     if (!sheet) continue;
 
@@ -817,6 +947,9 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
     case 'wandering':
     case 'engaging':
       anim = Math.hypot(w.vx, w.vy) > 8 ? Animation.Walk : Animation.Idle;
+      break;
+    case 'entering':
+      anim = Animation.Walk;
       break;
     case 'celebrating':
       anim = Animation.Celebrate;

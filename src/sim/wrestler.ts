@@ -14,7 +14,9 @@ export type WrestlerState =
   | 'beingEliminated'
   | 'eliminated'
   | 'celebrating'
-  | 'mounting';
+  | 'mounting'
+  | 'offstage'
+  | 'entering';
 
 export type AttackMove =
   | 'punch'

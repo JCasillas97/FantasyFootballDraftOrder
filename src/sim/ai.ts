@@ -33,6 +33,8 @@ export function nearestOther(w: Wrestler, all: readonly Wrestler[]): Wrestler | 
   let best: Wrestler | null = null;
   let bestD = Infinity;
   for (const other of all) {
+    // Wrestlers who aren't actually in the ring yet shouldn't be picked.
+    if (other.state === 'offstage' || other.state === 'entering') continue;
     if (other.id === w.id || !isActive(other)) continue;
     const d = distSq(w.x, w.y, other.x, other.y);
     if (d < bestD) {

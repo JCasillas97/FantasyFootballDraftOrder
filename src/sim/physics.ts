@@ -101,12 +101,13 @@ export function clampToCanvas(x: number, y: number): { x: number; y: number } {
 export function clampToFloor(x: number, y: number, r: Ring = RING): { x: number; y: number } {
   let cx = Math.max(ringLeft(r) - FLOOR_BAND + 6, Math.min(ringRight(r) + FLOOR_BAND - 6, x));
   let cy = Math.max(ringTop(r) - FLOOR_BAND + 6, Math.min(ringBottom(r) + FLOOR_BAND - 6, y));
-  // Push out of the announcer table zone.
-  const tableLeft = r.cx - 95;
-  const tableRight = r.cx + 95;
-  const tableTop = r.cy + r.halfH + 14;
+  // Push out of the announcer table zone — bigger table than the original
+  // (260px wide, sitting ~42px below the ring) so the forbidden zone got
+  // bigger too. Wrestlers caught here get nudged to the nearer left/right.
+  const tableLeft = r.cx - 135;
+  const tableRight = r.cx + 135;
+  const tableTop = r.cy + r.halfH + 36;
   if (cx >= tableLeft && cx <= tableRight && cy >= tableTop) {
-    // Closer to left or right edge of the table?
     if (cx < r.cx) cx = tableLeft - 6;
     else cx = tableRight + 6;
   }

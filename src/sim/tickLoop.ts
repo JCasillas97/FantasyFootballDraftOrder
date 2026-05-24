@@ -53,29 +53,38 @@ interface MoveDef {
 const MOVE_DEFS: Record<AttackMove, MoveDef> = {
   punch: { duration: 0.26, hitFrame: 0.14, impulse: 80, chargeSpeed: 0 },
   kick: { duration: 0.52, hitFrame: 0.30, impulse: 130, chargeSpeed: 0 },
-  tackle: { duration: 0.58, hitFrame: 0.36, impulse: 170, chargeSpeed: 130 },
-  clothesline: { duration: 0.44, hitFrame: 0.26, impulse: 200, chargeSpeed: 90 },
+  // Tackle is rare; on hit the attacker mounts and pounds the target.
+  tackle: { duration: 0.58, hitFrame: 0.40, impulse: 60, chargeSpeed: 150 },
+  // Clothesline is a multi-phase rope-bounce. attackStep overrides motion
+  // based on animPhase: run to rope, bounce, return, strike.
+  clothesline: { duration: 0.95, hitFrame: 0.78, impulse: 220, chargeSpeed: 0 },
   grapple: { duration: 0.30, hitFrame: 0.18, impulse: 60, chargeSpeed: 0 },
   irishWhip: { duration: 0.34, hitFrame: 0.20, impulse: 220, chargeSpeed: 0 },
   topRope: { duration: 1.05, hitFrame: 0.75, impulse: 280, chargeSpeed: 110 },
   splash: { duration: 0.95, hitFrame: 0.7, impulse: 260, chargeSpeed: 100 },
 };
 
-// Tackle dropped from the regular pool entirely — its forward charge was
-// making the action feel hectic. It stays available as a finisher move.
-// Splash kept at 2/10 so the in-match top-rope dive still shows up.
+// Combat is striking-heavy now. Tackle is rare (1/15) since it triggers a
+// long mount sequence; splash dropped to 1/15 to keep the action grounded.
 const REGULAR_MOVES: readonly AttackMove[] = [
   'punch',
   'punch',
   'punch',
   'punch',
+  'punch',
+  'punch',
+  'kick',
+  'kick',
   'kick',
   'kick',
   'kick',
   'clothesline',
-  'splash',
+  'clothesline',
+  'tackle',
   'splash',
 ];
+const MOUNT_DURATION = 1.6;
+const MOUNT_PUNCH_INTERVAL = 0.32;
 
 /** Moves that lay the victim flat instead of a quick stun. */
 const BIG_HITS: ReadonlySet<AttackMove> = new Set(['tackle', 'splash', 'topRope', 'clothesline']);
@@ -325,6 +334,9 @@ export function tick(s: MatchState): void {
       case 'celebrating':
         // Driven by the table-break sequence; no per-tick work here.
         break;
+      case 'mounting':
+        mountStep(w, s);
+        break;
       case 'eliminated':
         break;
     }
@@ -468,8 +480,35 @@ function attackStep(w: Wrestler, s: MatchState): void {
   w.stateTimer -= TICK_DT;
   w.animPhase = 1 - w.stateTimer / def.duration;
 
-  // Charge moves keep the attacker moving toward the target during wind-up.
-  if (def.chargeSpeed > 0 && w.targetId !== null) {
+  // Clothesline: run to nearest rope, bounce, charge back at the target.
+  if (move === 'clothesline' && w.targetId !== null) {
+    const t = s.wrestlers[w.targetId];
+    if (t && isActive(t)) {
+      if (w.animPhase < 0.4) {
+        // Phase 1: run AWAY from target toward nearest rope behind us.
+        const awayX = w.x - t.x;
+        const awayY = w.y - t.y;
+        const awayLen = Math.hypot(awayX, awayY) || 1;
+        w.vx = (awayX / awayLen) * 220;
+        w.vy = (awayY / awayLen) * 220;
+        w.facing = awayX < 0 ? -1 : 1;
+      } else if (w.animPhase < 0.5) {
+        // Phase 2: bounce off the rope — brief halt before reversing.
+        w.vx *= 0.2;
+        w.vy *= 0.2;
+        w.facing = t.x < w.x ? -1 : 1;
+      } else {
+        // Phase 3: charge BACK toward target at high speed for the strike.
+        const dx = t.x - w.x;
+        const dy = t.y - w.y;
+        const len = Math.hypot(dx, dy) || 1;
+        w.vx = (dx / len) * 240;
+        w.vy = (dy / len) * 240;
+        w.facing = dx < 0 ? -1 : 1;
+      }
+    }
+  } else if (def.chargeSpeed > 0 && w.targetId !== null) {
+    // Standard charge moves (tackle, splash, topRope) move straight toward target.
     const t = s.wrestlers[w.targetId];
     if (t && isActive(t)) {
       const dx = t.x - w.x;
@@ -515,12 +554,36 @@ function attackStep(w: Wrestler, s: MatchState): void {
       } else {
         t.vx = (dx / len) * def.impulse;
         t.vy = (dy / len) * def.impulse;
-        t.state = 'stunned';
-        if (BIG_HITS.has(move)) {
+        if (move === 'tackle') {
+          // Takedown: target downed for the whole mount + a beat, attacker
+          // is going to mount and pound them.
+          t.state = 'stunned';
+          t.downed = true;
+          t.stateTimer = MOUNT_DURATION + 0.6;
+          t.vx = 0;
+          t.vy = 0;
+          s.pendingEvents.push({ type: 'hit', attacker: w.id, victim: t.id, move });
+          // Override the normal attacking → recovering transition: the
+          // attacker mounts next.
+          w.state = 'mounting';
+          w.stateTimer = MOUNT_DURATION;
+          w.animPhase = 0;
+          // Reuse downed flag on attacker as a punch-timer; cleared on exit.
+          w.attackMove = null;
+          return;
+        }
+        if (move === 'clothesline') {
+          // Clothesline rope-bounce always knocks the target flat.
+          t.state = 'stunned';
+          t.downed = true;
+          t.stateTimer = DOWNED_DURATION;
+        } else if (BIG_HITS.has(move)) {
           // Lay them out on the mat. They'll get back up after DOWNED_DURATION.
+          t.state = 'stunned';
           t.stateTimer = DOWNED_DURATION;
           t.downed = true;
         } else {
+          t.state = 'stunned';
           t.stateTimer = STUN_DURATION;
           t.downed = false;
         }
@@ -558,6 +621,48 @@ function recoverStep(w: Wrestler): void {
   w.vy *= 0.85;
   if (w.stateTimer <= 0) {
     w.state = 'wandering';
+    w.targetId = null;
+  }
+}
+
+/**
+ * Post-tackle ground-and-pound. Attacker is mounted on top of the downed
+ * target, throws repeated punches. Each punch interval emits a hit event so
+ * the SFX/crowd-energy systems can react. After MOUNT_DURATION the attacker
+ * exits to recovering.
+ */
+function mountStep(w: Wrestler, s: MatchState): void {
+  w.stateTimer -= TICK_DT;
+  if (w.targetId === null) {
+    w.state = 'wandering';
+    return;
+  }
+  const t = s.wrestlers[w.targetId];
+  if (!t || !isActive(t)) {
+    w.state = 'wandering';
+    return;
+  }
+  // Sit on top of the target. Slight offset so the attacker isn't perfectly
+  // overlapping (renderer can still show both sprites distinctly).
+  w.x = t.x;
+  w.y = t.y - 4;
+  w.vx = 0;
+  w.vy = 0;
+  w.facing = 1;
+  // Per-punch animation cycle. Each MOUNT_PUNCH_INTERVAL seconds, the
+  // animPhase wraps 0 → 1 and fires a hit event at the apex.
+  w.mountPunchPhase += TICK_DT / MOUNT_PUNCH_INTERVAL;
+  if (w.mountPunchPhase >= 1) {
+    w.mountPunchPhase -= 1;
+    // Punch lands.
+    s.pendingEvents.push({ type: 'hit', attacker: w.id, victim: t.id, move: 'punch' });
+    t.stateTimer = Math.max(t.stateTimer, MOUNT_PUNCH_INTERVAL * 1.5);
+  }
+  w.animPhase = w.mountPunchPhase;
+  if (w.stateTimer <= 0) {
+    w.state = 'recovering';
+    w.stateTimer = RECOVER_DURATION;
+    w.mountPunchPhase = 0;
     w.targetId = null;
   }
 }

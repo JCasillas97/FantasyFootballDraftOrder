@@ -77,13 +77,14 @@ const HIT_LINES: Record<AttackMove, string[]> = {
     '{a} drives a knee into {v}.',
   ],
   tackle: [
-    '{a} SPEARS {v}!',
-    '{a} levels {v} with a flying tackle!',
-    '{a} runs through {v} like a freight train.',
+    '{a} TAKES {v} DOWN! Now mounting for the ground-and-pound!',
+    '{a} hits a takedown — raining elbows on {v}!',
+    '{a} drops {v} and starts pounding away!',
   ],
   clothesline: [
-    '{a} nearly takes {v}’s head off with a clothesline!',
-    '{a} catches {v} with a brutal clothesline!',
+    '{a} hits the ropes... AND CRUSHES {v} WITH A CLOTHESLINE!',
+    '{a} bounces off the ropes and DECAPITATES {v}!',
+    'OFF THE ROPES — {a} levels {v}!',
   ],
   grapple: ['{a} locks up with {v}.', '{a} muscles {v} into a hold.'],
   irishWhip: [

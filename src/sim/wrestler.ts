@@ -13,7 +13,8 @@ export type WrestlerState =
   | 'nearRope'
   | 'beingEliminated'
   | 'eliminated'
-  | 'celebrating';
+  | 'celebrating'
+  | 'mounting';
 
 export type AttackMove =
   | 'punch'
@@ -51,6 +52,8 @@ export interface Wrestler {
   downed: boolean;
   /** Vertical render offset (climb height etc). Not part of physics. */
   renderYOffset: number;
+  /** Cycle phase 0..1 used by mounting state to time individual punches. */
+  mountPunchPhase: number;
 }
 
 export function makeWrestler(id: number, x: number, y: number, facing: -1 | 1): Wrestler {
@@ -71,6 +74,7 @@ export function makeWrestler(id: number, x: number, y: number, facing: -1 | 1): 
     isFinisher: false,
     downed: false,
     renderYOffset: 0,
+    mountPunchPhase: 0,
   };
 }
 

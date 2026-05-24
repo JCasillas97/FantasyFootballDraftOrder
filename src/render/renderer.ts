@@ -569,6 +569,11 @@ function animationFor(w: Wrestler, t: number): { anim: Animation; frame: number 
     case 'celebrating':
       anim = Animation.Celebrate;
       break;
+    case 'mounting':
+      // Reuse the Attack row (arm extended) — the mounted attacker is
+      // cycling through punches at MOUNT_PUNCH_INTERVAL.
+      anim = Animation.Attack;
+      break;
     default:
       anim = Animation.Idle;
   }

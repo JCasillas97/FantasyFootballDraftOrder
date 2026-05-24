@@ -47,8 +47,8 @@ export function pickBestMimeType(): { mime: string; isMp4: boolean } | null {
 export interface StartOptions {
   fps?: number;
   videoBitsPerSecond?: number;
-  /** Audio stream to mix in (from AudioContext.createMediaStreamDestination()). */
-  audioTracks?: MediaStreamTrack[];
+  /** Per-recording audio handle from `createCaptureAudio()`. */
+  audio?: { tracks: MediaStreamTrack[]; dispose(): void };
 }
 
 export function startRecording(
@@ -64,7 +64,7 @@ export function startRecording(
   // recorded video to report wildly incorrect duration (saw 30-minute
   // playback durations for ~90-second matches).
   const stream = canvas.captureStream(fps);
-  for (const track of opts.audioTracks ?? []) {
+  for (const track of opts.audio?.tracks ?? []) {
     stream.addTrack(track);
   }
 
@@ -92,11 +92,13 @@ export function startRecording(
 
   let stopped = false;
 
-  // Only stop the VIDEO track on cleanup. Audio tracks come from the
-  // app-level AudioContext MediaStreamDestination (shared across matches);
-  // stopping them would kill audio for every subsequent recording.
-  const stopVideoOnly = () => {
+  // On cleanup: stop the video track (canvas-derived, per-recording) AND
+  // dispose the per-recording audio handle so its MediaStreamDestination
+  // gets disconnected from masterGain. AudioContext + masterGain stay alive
+  // across matches.
+  const cleanup = () => {
     for (const track of stream.getVideoTracks()) track.stop();
+    opts.audio?.dispose();
   };
 
   const stop = (): Promise<RecordingResult> =>
@@ -106,7 +108,7 @@ export function startRecording(
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: pick.mime.split(';')[0] });
         const duration = (performance.now() - startedAt) / 1000;
-        stopVideoOnly();
+        cleanup();
         resolve({ blob, mimeType: pick.mime, isMp4: pick.isMp4, duration });
       };
       recorder.onerror = (e) => reject(e);
@@ -117,7 +119,7 @@ export function startRecording(
   const cancel = () => {
     stopped = true;
     if (recorder.state !== 'inactive') recorder.stop();
-    stopVideoOnly();
+    cleanup();
   };
 
   return { stop, cancel };

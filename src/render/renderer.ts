@@ -427,7 +427,9 @@ function drawAnnouncerTable(
   broken: boolean,
 ): void {
   // Bigger table for proportionality with the (48x64px) wrestler sprites.
-  const tableY = ringBottom + 22;
+  // Pushed down enough that commentator heads stay below the ring's bottom
+  // rope rather than poking up behind the mat.
+  const tableY = ringBottom + 42;
   const tableLeft = ringLeft + RING.halfW - 130;
   const tableW = 260;
 
@@ -576,8 +578,12 @@ interface RopeBounce {
 function computeRopeBounce(state: MatchState): RopeBounce | null {
   for (const w of state.wrestlers) {
     if (w.state !== 'attacking' || w.attackMove !== 'clothesline') continue;
-    if (w.animPhase < 0.2 || w.animPhase > 0.6) continue;
-    // Pick the nearest rope side (the one the wrestler is heading into).
+    // Tight window: bulge only shows during the actual rope contact (0.38-0.52
+    // animPhase). Outside that, the rope is normal. This stops the sliding-
+    // along-the-rope effect that read as "ropes dancing around."
+    if (w.animPhase < 0.38 || w.animPhase > 0.52) continue;
+    // Pick the nearest rope side and snap the bulge position to the wrestler's
+    // contact spot at the moment of bounce.
     const left = RING.cx - RING.halfW;
     const right = RING.cx + RING.halfW;
     const top = RING.cy - RING.halfH;
@@ -602,14 +608,9 @@ function computeRopeBounce(state: MatchState): RopeBounce | null {
       side = 'bottom';
       pos = w.x;
     }
-    // Bulge bell curve: rises during charge, peaks at the bounce, falls off.
-    // Phase 0.20..0.40: rising. 0.40..0.50: peak. 0.50..0.60: snap-back.
-    const phase = w.animPhase;
-    let bulge: number;
-    if (phase < 0.45) bulge = ((phase - 0.2) / 0.25) * 14;
-    else if (phase < 0.55) bulge = 14 - ((phase - 0.45) / 0.1) * 18; // snap past flat
-    else bulge = -4 + ((phase - 0.55) / 0.05) * 4;
-    bulge = Math.max(-6, Math.min(20, bulge));
+    // Single sine pulse over the 0.14-wide window: 0 → peak → 0.
+    const t = (w.animPhase - 0.38) / 0.14;
+    const bulge = Math.sin(t * Math.PI) * 12;
     return { side, pos, bulge };
   }
   return null;

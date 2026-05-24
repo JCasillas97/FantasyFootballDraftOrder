@@ -64,8 +64,9 @@ const MOVE_DEFS: Record<AttackMove, MoveDef> = {
   splash: { duration: 0.95, hitFrame: 0.7, impulse: 260, chargeSpeed: 100 },
 };
 
-// Combat is striking-heavy now. Tackle is rare (1/15) since it triggers a
-// long mount sequence; splash dropped to 1/15 to keep the action grounded.
+// Combat is striking-heavy. Clothesline dropped to 1/26 (~1/4 of the
+// previous rate) because the rope-bounce spot was running too often and
+// looked jittery on the canvas. Tackle and splash remain rare.
 const REGULAR_MOVES: readonly AttackMove[] = [
   'punch',
   'punch',
@@ -73,14 +74,25 @@ const REGULAR_MOVES: readonly AttackMove[] = [
   'punch',
   'punch',
   'punch',
+  'punch',
+  'punch',
+  'punch',
   'kick',
   'kick',
   'kick',
   'kick',
   'kick',
-  'clothesline',
+  'kick',
+  'kick',
+  'kick',
+  'kick',
+  'kick',
+  'kick',
+  'kick',
+  'kick',
   'clothesline',
   'tackle',
+  'splash',
   'splash',
 ];
 const MOUNT_DURATION = 1.6;

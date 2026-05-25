@@ -9,7 +9,6 @@
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
-let captureDest: MediaStreamAudioDestinationNode | null = null;
 let muted = false;
 
 export function getAudioContext(): AudioContext | null {
@@ -28,17 +27,37 @@ export function getAudioContext(): AudioContext | null {
 }
 
 /**
- * Create or return the capture destination. Add its track to the recorder's
- * MediaStream so SFX are baked into the exported video.
+ * Per-recording audio capture handle. The destination node is created fresh
+ * for each match so the audio track's internal timeline anchors to the same
+ * moment the video track starts. A long-lived destination would cause
+ * MediaRecorder to mux `mvhd.duration = AudioContext.currentTime +
+ * recordingLength`, producing huge bogus durations (the 1800s bug).
+ *
+ * Caller MUST invoke `dispose()` after `recorder.stop()` completes so the
+ * destination is disconnected from masterGain — but the AudioContext and
+ * masterGain themselves stay alive across the session.
  */
-export function getCaptureAudioTracks(): MediaStreamTrack[] {
+export interface CaptureAudioHandle {
+  tracks: MediaStreamTrack[];
+  dispose(): void;
+}
+
+export function createCaptureAudio(): CaptureAudioHandle {
   const audio = getAudioContext();
-  if (!audio || !masterGain) return [];
-  if (!captureDest) {
-    captureDest = audio.createMediaStreamDestination();
-    masterGain.connect(captureDest);
-  }
-  return captureDest.stream.getAudioTracks();
+  if (!audio || !masterGain) return { tracks: [], dispose: () => {} };
+  const dest = audio.createMediaStreamDestination();
+  masterGain.connect(dest);
+  return {
+    tracks: dest.stream.getAudioTracks(),
+    dispose: () => {
+      try {
+        masterGain!.disconnect(dest);
+      } catch {
+        // Already disconnected — no-op.
+      }
+      for (const t of dest.stream.getAudioTracks()) t.stop();
+    },
+  };
 }
 
 export function setMuted(value: boolean): void {

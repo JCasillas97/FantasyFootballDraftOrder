@@ -8,7 +8,7 @@ import { startRecording, isRecorderSupported, type RecorderHandle } from '../cap
 import { CommentaryStream } from '../sim/commentary';
 import { CommentaryLog } from './CommentaryLog';
 import { DraftPickPanel, type DraftPick } from './DraftPickPanel';
-import { SFX, getCaptureAudioTracks, resumeAudio, setMuted, isMuted } from '../audio/engine';
+import { SFX, createCaptureAudio, resumeAudio, setMuted, isMuted } from '../audio/engine';
 
 export function MatchScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -59,12 +59,16 @@ export function MatchScreen() {
     // video-only — better than nothing.
     let recorder: RecorderHandle | null = null;
     if (isRecorderSupported()) {
-      const audioTracks = getCaptureAudioTracks();
+      // Fresh per-recording audio destination (created microseconds before
+      // recorder.start) so MediaRecorder's mux timeline isn't poisoned by
+      // AudioContext.currentTime drift.
+      const audio = createCaptureAudio();
       recorder = startRecording(canvas, {
         fps: 60,
         videoBitsPerSecond: 1_200_000,
-        audioTracks,
+        audio,
       });
+      if (!recorder) audio.dispose();
     }
 
     let raf = 0;

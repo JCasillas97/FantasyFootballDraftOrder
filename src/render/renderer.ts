@@ -347,8 +347,10 @@ function drawPodiumOverlay(
 function drawCatwalk(ctx: CanvasRenderingContext2D, wallSec: number): void {
   const ringLeftEdge = RING.cx - RING.halfW;
   const ringTopEdge = RING.cy - RING.halfH;
-  const rampLeft = 14;
-  const rampRight = 90;
+  // Wider ramp so a normal-scale wrestler (48px wide sprite) fits with
+  // clear carpet around them.
+  const rampLeft = 8;
+  const rampRight = 124;
   const rampTop = 0;
   const rampBottom = ringTopEdge - 8;
 
@@ -363,8 +365,9 @@ function drawCatwalk(ctx: CanvasRenderingContext2D, wallSec: number): void {
   ctx.fillStyle = '#5a5a6a';
   ctx.fillRect(rampRight - 6, rampTop, 6, rampBottom - rampTop);
 
-  // Red carpet down the middle
-  const carpetW = 30;
+  // Red carpet down the middle — wider so the wrestler walks on top of it
+  // with clear ramp metal showing on both sides.
+  const carpetW = 60;
   const carpetX = (rampLeft + rampRight) / 2 - carpetW / 2;
   ctx.fillStyle = '#a02828';
   ctx.fillRect(carpetX, rampTop, carpetW, rampBottom - rampTop);
@@ -379,7 +382,10 @@ function drawCatwalk(ctx: CanvasRenderingContext2D, wallSec: number): void {
   ctx.fillRect(rampLeft, rampTop, 2, rampBottom - rampTop);
   ctx.fillRect(rampRight - 2, rampTop, 2, rampBottom - rampTop);
 
-  // TitanTron at the top of the ramp
+  // TitanTron at the top of the ramp. Layout (top → bottom):
+  //   y+4..y+14    "RUMBLE-TRON" label
+  //   y+18..y+44   animated equalizer bars (text sits above so they
+  //                never overlap the label)
   const tronH = 48;
   const tronLeft = rampLeft - 6;
   const tronRight = rampRight + 28;
@@ -389,19 +395,20 @@ function drawCatwalk(ctx: CanvasRenderingContext2D, wallSec: number): void {
   // Screen
   ctx.fillStyle = '#0a0a14';
   ctx.fillRect(tronLeft, rampTop + 4, tronRight - tronLeft, tronH);
-  // Animated bars on the screen for life
-  for (let i = 0; i < 8; i++) {
-    const bx = tronLeft + 6 + i * ((tronRight - tronLeft - 12) / 8);
-    const h = 8 + Math.abs(Math.sin((wallSec + i * 0.4) * 4)) * 18;
-    ctx.fillStyle = i % 2 === 0 ? '#ffcc00' : '#cc4040';
-    ctx.fillRect(bx, rampTop + 4 + tronH - h, 4, h);
-  }
-  // TRON label
+  // TRON label FIRST (above the bars)
   ctx.fillStyle = '#ffcc00';
   ctx.font = 'bold 9px ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.fillText('RUMBLE-TRON', (tronLeft + tronRight) / 2, rampTop + 36);
+  ctx.fillText('RUMBLE-TRON', (tronLeft + tronRight) / 2, rampTop + 6);
+  // Animated bars BELOW the text — bottom-aligned at y = rampTop + tronH
+  const barsBottom = rampTop + tronH;
+  for (let i = 0; i < 10; i++) {
+    const bx = tronLeft + 6 + i * ((tronRight - tronLeft - 12) / 10);
+    const h = 6 + Math.abs(Math.sin((wallSec + i * 0.4) * 4)) * 22;
+    ctx.fillStyle = i % 2 === 0 ? '#ffcc00' : '#cc4040';
+    ctx.fillRect(bx, barsBottom - h, 4, h);
+  }
 
   // Stage lighting cone over the carpet
   ctx.fillStyle = 'rgba(255, 220, 100, 0.08)';

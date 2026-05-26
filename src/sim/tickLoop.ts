@@ -99,7 +99,8 @@ const MOUNT_DURATION = 1.6;
 const MOUNT_PUNCH_INTERVAL = 0.32;
 
 const INTRO_DURATION = 3.4;
-const SURPRISE_TRIGGER_SEC = 14; // when the surprise wrestler appears
+/** Surprise wrestler enters when this many wrestlers are still in the ring. */
+const SURPRISE_TRIGGER_IN_RING = 2;
 const SURPRISE_CATWALK_DURATION = 6.0;
 interface SurpriseState {
   wrestlerId: number;
@@ -165,6 +166,7 @@ const SPOTLIGHT_LAUNCH_DURATION = 1.0;
 type TableBreakStage =
   | 'pending'
   | 'approach'
+  | 'knockout'
   | 'drag'
   | 'lift'
   | 'slam'
@@ -185,6 +187,7 @@ interface TableBreakState {
   dragStartY: number;
 }
 const TABLEBREAK_APPROACH_MAX = 1.6;
+const TABLEBREAK_KNOCKOUT_DURATION = 1.4;
 const TABLEBREAK_DRAG_DURATION = 1.4;
 const TABLEBREAK_LIFT_DURATION = 0.8;
 const TABLEBREAK_SLAM_DURATION = 0.45;
@@ -257,11 +260,13 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
       triggered: false,
       stage: 'pending',
       stageTimer: 0,
-      // Start at the top of the red carpet, directly under the TitanTron
-      // (the very back of the entrance ramp). Wrestler walks the FULL
-      // length down to the ring through fog + fireworks.
-      startX: 52,
-      startY: 58,
+      // Top of the red carpet, directly under the TitanTron — feet at
+      // y=120 puts the head at y=56 (just below the TitanTron's bottom
+      // edge), so the wrestler is fully visible the moment they appear.
+      // Catwalk's wider carpet is centered around x=66 ((rampLeft 8 +
+      // rampRight 124) / 2).
+      startX: 66,
+      startY: 120,
       ringEntryX: ringLeft() + PLAYABLE_INSET + 40,
       ringEntryY: ringTop() + PLAYABLE_INSET + 20,
     };
@@ -363,22 +368,32 @@ export function tick(s: MatchState): void {
 
   // Surprise late entrant choreography: walks out on the catwalk and into
   // the ring. Other wrestlers continue brawling normally (no pause).
-  if (s.surprise && !s.surprise.triggered && s.t >= SURPRISE_TRIGGER_SEC) {
-    s.surprise.triggered = true;
-    s.surprise.stage = 'walking';
-    s.surprise.stageTimer = SURPRISE_CATWALK_DURATION;
-    const w = s.wrestlers[s.surprise.wrestlerId];
-    w.x = s.surprise.startX;
-    w.y = s.surprise.startY;
-    w.state = 'entering';
-    w.vx = 0;
-    w.vy = 0;
-    s.pendingEvents.push({
-      type: 'spotlight',
-      stage: 'climb',
-      actor: s.surprise.wrestlerId,
-      target: s.surprise.wrestlerId,
-    });
+  // Trigger when only 2 in-ring wrestlers remain (excluding the surprise
+  // wrestler who's still offstage). Late-match entrance for max drama.
+  if (s.surprise && !s.surprise.triggered) {
+    let inRingCount = 0;
+    for (const w of s.wrestlers) {
+      if (w.state === 'eliminated') continue;
+      if (w.state === 'offstage' || w.state === 'entering') continue;
+      inRingCount++;
+    }
+    if (inRingCount <= SURPRISE_TRIGGER_IN_RING) {
+      s.surprise.triggered = true;
+      s.surprise.stage = 'walking';
+      s.surprise.stageTimer = SURPRISE_CATWALK_DURATION;
+      const w = s.wrestlers[s.surprise.wrestlerId];
+      w.x = s.surprise.startX;
+      w.y = s.surprise.startY;
+      w.state = 'entering';
+      w.vx = 0;
+      w.vy = 0;
+      s.pendingEvents.push({
+        type: 'spotlight',
+        stage: 'climb',
+        actor: s.surprise.wrestlerId,
+        target: s.surprise.wrestlerId,
+      });
+    }
   }
   if (s.surprise && s.surprise.stage === 'walking') {
     s.surprise.stageTimer -= TICK_DT;
@@ -470,9 +485,16 @@ export function tick(s: MatchState): void {
         s.tableBreak.stage === 'pending' &&
         s.scheduler.nextIndex === s.tableBreak.targetElimIdx
       ) {
-        s.tableBreak.target = victim;
-        beginTableBreak(s);
-        return;
+        // If the actor (the winner) is still mid-catwalk-walk, wait one
+        // tick. Otherwise the choreography would teleport them.
+        const tbActor = s.wrestlers[s.tableBreak.actor];
+        if (tbActor.state === 'entering' || tbActor.state === 'offstage') {
+          // skip — try again next tick
+        } else {
+          s.tableBreak.target = victim;
+          beginTableBreak(s);
+          return;
+        }
       }
       if (
         s.spotlight &&
@@ -1130,27 +1152,50 @@ function tableBreakTick(s: MatchState): void {
       const dy = target.y - actor.y;
       const dist = Math.hypot(dx, dy);
       if (dist < 24 || tb.stageTimer <= 0) {
-        // Knock the target down — they're ready to be carried.
+        // Knock the victim DOWN flat first — they stay on the mat for a
+        // beat so the audience clearly sees the KO before any carry/lift.
         target.state = 'stunned';
         target.downed = true;
-        target.stateTimer = 10; // held in stun until the slam commits
+        target.stateTimer = 20; // held until the slam commits
+        target.vx = 0;
+        target.vy = 0;
         actor.facing = dx < 0 ? -1 : 1;
-        tb.stage = 'drag';
-        tb.stageTimer = TABLEBREAK_DRAG_DURATION;
-        tb.dragStartX = (actor.x + target.x) / 2;
-        tb.dragStartY = (actor.y + target.y) / 2;
+        s.pendingEvents.push({
+          type: 'hit',
+          attacker: tb.actor,
+          victim: tb.target,
+          move: 'punch',
+        });
         s.pendingEvents.push({
           type: 'spotlight',
           stage: 'leap',
           actor: tb.actor,
           target: tb.target,
         });
+        tb.stage = 'knockout';
+        tb.stageTimer = TABLEBREAK_KNOCKOUT_DURATION;
+        tb.dragStartX = (actor.x + target.x) / 2;
+        tb.dragStartY = (actor.y + target.y) / 2;
       } else {
         actor.vx = (dx / dist) * TABLEBREAK_DRAG_SPEED;
         actor.vy = (dy / dist) * TABLEBREAK_DRAG_SPEED;
         actor.x += actor.vx * TICK_DT;
         actor.y += actor.vy * TICK_DT;
         actor.facing = dx < 0 ? -1 : 1;
+      }
+      break;
+    }
+    case 'knockout': {
+      // Hold the target visibly flat on the mat. Actor stands over them
+      // (no movement). The audience registers the KO before the carry.
+      // Drift damping in case target had any residual velocity.
+      target.vx = 0;
+      target.vy = 0;
+      actor.vx = 0;
+      actor.vy = 0;
+      if (tb.stageTimer <= 0) {
+        tb.stage = 'drag';
+        tb.stageTimer = TABLEBREAK_DRAG_DURATION;
       }
       break;
     }

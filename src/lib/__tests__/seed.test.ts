@@ -25,6 +25,9 @@ describe('replay encode/decode', () => {
     expect(decoded!.roster.length).toBe(12);
     for (let i = 0; i < 12; i++) {
       expect(decoded!.roster[i].name).toBe(sampleRoster[i].name);
+      // v2 format trades full avatar fidelity for URL length — avatars are
+      // reconstructed from presetAvatar(index), which matches the default
+      // avatars used in this test fixture (DEFAULT_AVATARS).
       expect(decoded!.roster[i].avatar).toEqual(sampleRoster[i].avatar);
     }
   });
@@ -43,9 +46,10 @@ describe('replay encode/decode', () => {
     expect(decodeReplay('NoZQGgwgZgrgrCAA')).toBeNull();
   });
 
-  it('keeps encoded payload reasonably short for iMessage URLs', () => {
+  it('keeps encoded payload SHORT enough for iMessage URLs', () => {
     const encoded = encodeReplay(sampleRoster, 42);
-    // 12-player default roster typically compresses to under 700 chars.
-    expect(encoded.length).toBeLessThan(1000);
+    // v2 format: names-only payload, ~200 chars for a 12-player roster.
+    // iMessage was breaking links past ~400-500 chars; aim for <300.
+    expect(encoded.length).toBeLessThan(300);
   });
 });

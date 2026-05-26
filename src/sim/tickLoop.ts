@@ -297,15 +297,19 @@ function planSpotlight(
   eliminationOrder: readonly number[],
   rng: Rng,
 ): SpotlightState | null {
-  if (eliminationOrder.length < 5) return null;
+  if (eliminationOrder.length < 6) return null;
   const targetElimIdx = Math.floor(eliminationOrder.length / 2);
   // Must leave room for the table-break finale (at N-2) — skip if collision.
   if (targetElimIdx >= eliminationOrder.length - 2) return null;
-  // Actor must NOT be the very next scheduled victim — otherwise they'd
-  // perform the splash and then immediately get eliminated, making it look
-  // like the jumper was the one being slammed. Skip at least one slot ahead.
+  // Actor must NOT be the very next scheduled victim (would get eliminated
+  // immediately after the splash). Also must NOT be the winner — the winner
+  // IS the surprise late entrant and is OFFSTAGE on the catwalk until the
+  // final two; making them the spotlight actor mid-match teleports them
+  // into the ring, which was the source of the "wrestler appears at the
+  // corner of the ring mid-match" glitch.
   const minActorIdx = Math.min(targetElimIdx + 2, eliminationOrder.length - 1);
-  const actorPool = eliminationOrder.slice(minActorIdx);
+  const maxActorIdx = eliminationOrder.length - 1; // exclusive — skips the winner
+  const actorPool = eliminationOrder.slice(minActorIdx, maxActorIdx);
   if (actorPool.length === 0) return null;
   const actor = actorPool[rng.nextInt(actorPool.length)];
   return {
@@ -371,28 +375,39 @@ export function tick(s: MatchState): void {
   // Trigger when only 2 in-ring wrestlers remain (excluding the surprise
   // wrestler who's still offstage). Late-match entrance for max drama.
   if (s.surprise && !s.surprise.triggered) {
-    let inRingCount = 0;
-    for (const w of s.wrestlers) {
-      if (w.state === 'eliminated') continue;
-      if (w.state === 'offstage' || w.state === 'entering') continue;
-      inRingCount++;
-    }
-    if (inRingCount <= SURPRISE_TRIGGER_IN_RING) {
+    const sw = s.wrestlers[s.surprise.wrestlerId];
+    // Defensive: only run the catwalk entrance if the surprise wrestler is
+    // ACTUALLY still offstage. If something else pulled them into the ring
+    // (shouldn't happen now that spotlight excludes the winner, but just
+    // in case), skip the entrance so we don't teleport them around.
+    if (sw.state === 'offstage') {
+      let inRingCount = 0;
+      for (const w of s.wrestlers) {
+        if (w.state === 'eliminated') continue;
+        if (w.state === 'offstage' || w.state === 'entering') continue;
+        inRingCount++;
+      }
+      if (inRingCount <= SURPRISE_TRIGGER_IN_RING) {
+        s.surprise.triggered = true;
+        s.surprise.stage = 'walking';
+        s.surprise.stageTimer = SURPRISE_CATWALK_DURATION;
+        sw.x = s.surprise.startX;
+        sw.y = s.surprise.startY;
+        sw.state = 'entering';
+        sw.vx = 0;
+        sw.vy = 0;
+        s.pendingEvents.push({
+          type: 'spotlight',
+          stage: 'climb',
+          actor: s.surprise.wrestlerId,
+          target: s.surprise.wrestlerId,
+        });
+      }
+    } else {
+      // Wrestler isn't offstage anymore — mark surprise as done so the
+      // trigger doesn't keep firing each tick.
       s.surprise.triggered = true;
-      s.surprise.stage = 'walking';
-      s.surprise.stageTimer = SURPRISE_CATWALK_DURATION;
-      const w = s.wrestlers[s.surprise.wrestlerId];
-      w.x = s.surprise.startX;
-      w.y = s.surprise.startY;
-      w.state = 'entering';
-      w.vx = 0;
-      w.vy = 0;
-      s.pendingEvents.push({
-        type: 'spotlight',
-        stage: 'climb',
-        actor: s.surprise.wrestlerId,
-        target: s.surprise.wrestlerId,
-      });
+      s.surprise.stage = 'arrived';
     }
   }
   if (s.surprise && s.surprise.stage === 'walking') {

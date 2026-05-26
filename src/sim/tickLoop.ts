@@ -100,7 +100,7 @@ const MOUNT_PUNCH_INTERVAL = 0.32;
 
 const INTRO_DURATION = 3.4;
 const SURPRISE_TRIGGER_SEC = 14; // when the surprise wrestler appears
-const SURPRISE_CATWALK_DURATION = 3.8;
+const SURPRISE_CATWALK_DURATION = 6.0;
 interface SurpriseState {
   wrestlerId: number;
   triggered: boolean;
@@ -257,10 +257,14 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
       triggered: false,
       stage: 'pending',
       stageTimer: 0,
-      startX: 12, // far left of canvas (catwalk entry)
-      startY: 80,
+      // Catwalk's red carpet is centered around x=52 (rampLeft 14 +
+      // rampRight 90 / 2). Wrestler starts at the top of the carpet just
+      // below the TitanTron and walks all the way down through the ramp
+      // into the ring's top-left.
+      startX: 52,
+      startY: 64,
       ringEntryX: ringLeft() + PLAYABLE_INSET + 40,
-      ringEntryY: RING.cy - 30,
+      ringEntryY: ringTop() + PLAYABLE_INSET + 20,
     };
   }
   return {

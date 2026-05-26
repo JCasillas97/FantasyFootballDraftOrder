@@ -106,6 +106,19 @@ export function MatchScreen() {
 
     const loop = (now: number) => {
       if (stopped) return;
+      try {
+        loopBody(now);
+      } catch (err) {
+        // Surface mid-loop errors instead of silently killing the capture
+        // stream (which is what was causing recordings to "freeze" while
+        // the recorder kept ticking).
+        console.error('match loop error', err);
+        stopped = true;
+        finalize();
+      }
+    };
+
+    const loopBody = (now: number) => {
       const delta = Math.min(0.25, (now - lastWall) / 1000);
       lastWall = now;
       accumulator += delta;

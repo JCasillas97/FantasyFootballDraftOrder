@@ -43,8 +43,9 @@ export function drawFrame(
   ctx.fillStyle = '#0a0a14';
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
+  const wallSecLocal = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
   drawCrowd(ctx, opts.crowdEnergy ?? 0, opts.tableBroken ?? false);
-  drawCatwalk(ctx);
+  drawCatwalk(ctx, wallSecLocal);
   drawRing(ctx, opts.leagueName ?? '', computeRopeBounce(state));
   drawWrestlers(ctx, state, roster, sheets);
   drawHud(ctx, state);
@@ -338,42 +339,96 @@ function drawPodiumOverlay(
 }
 
 /**
- * Entrance ramp on the left side leading to the ring. Wrestlers walk down
- * this when they make a surprise entrance.
+ * Entrance ramp on the left side. A vertical TitanTron at the top of the
+ * canvas, then a red-carpet runway descending to the ring's top-left rope.
+ * Wrestlers walk the full length during the surprise-entrance sequence.
  */
-function drawCatwalk(ctx: CanvasRenderingContext2D): void {
+function drawCatwalk(ctx: CanvasRenderingContext2D, wallSec: number): void {
   const ringLeftEdge = RING.cx - RING.halfW;
   const ringTopEdge = RING.cy - RING.halfH;
-  // Ramp polygon from offstage left corner down to the ring's left rope.
-  const x0 = 0;
-  const y0 = 60;
-  const y1 = 110;
-  ctx.fillStyle = '#1f1f33';
+  const rampLeft = 14;
+  const rampRight = 90;
+  const rampTop = 0;
+  const rampBottom = ringTopEdge - 8;
+
+  // Outer black border / floor under the ramp
+  ctx.fillStyle = '#0a0a14';
+  ctx.fillRect(rampLeft - 4, rampTop, rampRight - rampLeft + 8, rampBottom - rampTop + 12);
+
+  // Metal ramp body (silver grey)
+  ctx.fillStyle = '#4a4a5a';
+  ctx.fillRect(rampLeft, rampTop, rampRight - rampLeft, rampBottom - rampTop);
+  // Highlight strip along the right edge
+  ctx.fillStyle = '#5a5a6a';
+  ctx.fillRect(rampRight - 6, rampTop, 6, rampBottom - rampTop);
+
+  // Red carpet down the middle
+  const carpetW = 30;
+  const carpetX = (rampLeft + rampRight) / 2 - carpetW / 2;
+  ctx.fillStyle = '#a02828';
+  ctx.fillRect(carpetX, rampTop, carpetW, rampBottom - rampTop);
+  ctx.fillStyle = '#8a2020';
+  // Carpet stripes (panel seams) so it feels long
+  for (let y = rampTop + 12; y < rampBottom; y += 24) {
+    ctx.fillRect(carpetX, y, carpetW, 1);
+  }
+
+  // Gold trim along both ramp edges
+  ctx.fillStyle = '#ffcc00';
+  ctx.fillRect(rampLeft, rampTop, 2, rampBottom - rampTop);
+  ctx.fillRect(rampRight - 2, rampTop, 2, rampBottom - rampTop);
+
+  // TitanTron at the top of the ramp
+  const tronH = 48;
+  const tronLeft = rampLeft - 6;
+  const tronRight = rampRight + 28;
+  // Frame
+  ctx.fillStyle = '#1a1a26';
+  ctx.fillRect(tronLeft - 4, rampTop, tronRight - tronLeft + 8, tronH + 8);
+  // Screen
+  ctx.fillStyle = '#0a0a14';
+  ctx.fillRect(tronLeft, rampTop + 4, tronRight - tronLeft, tronH);
+  // Animated bars on the screen for life
+  for (let i = 0; i < 8; i++) {
+    const bx = tronLeft + 6 + i * ((tronRight - tronLeft - 12) / 8);
+    const h = 8 + Math.abs(Math.sin((wallSec + i * 0.4) * 4)) * 18;
+    ctx.fillStyle = i % 2 === 0 ? '#ffcc00' : '#cc4040';
+    ctx.fillRect(bx, rampTop + 4 + tronH - h, 4, h);
+  }
+  // TRON label
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = 'bold 9px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('RUMBLE-TRON', (tronLeft + tronRight) / 2, rampTop + 36);
+
+  // Stage lighting cone over the carpet
+  ctx.fillStyle = 'rgba(255, 220, 100, 0.08)';
   ctx.beginPath();
-  ctx.moveTo(x0, y0);
-  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 8);
-  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 28);
-  ctx.lineTo(x0, y1);
+  ctx.moveTo(carpetX - 4, rampTop + tronH + 6);
+  ctx.lineTo(carpetX + carpetW + 4, rampTop + tronH + 6);
+  ctx.lineTo(carpetX + carpetW + 14, rampBottom);
+  ctx.lineTo(carpetX - 14, rampBottom);
   ctx.closePath();
   ctx.fill();
-  // Carpet stripe down the middle
-  ctx.fillStyle = '#aa3030';
+
+  // Connector wedge from the ramp bottom into the ring's top-left rope
+  ctx.fillStyle = '#4a4a5a';
   ctx.beginPath();
-  ctx.moveTo(x0, y0 + 18);
-  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 14);
-  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 22);
-  ctx.lineTo(x0, y1 - 18);
+  ctx.moveTo(rampLeft, rampBottom);
+  ctx.lineTo(rampRight, rampBottom);
+  ctx.lineTo(ringLeftEdge + 30, ringTopEdge + 6);
+  ctx.lineTo(ringLeftEdge + 14, ringTopEdge + 16);
   ctx.closePath();
   ctx.fill();
-  // Edge rails
-  ctx.strokeStyle = '#ffcc00';
-  ctx.lineWidth = 1;
+  ctx.fillStyle = '#a02828';
   ctx.beginPath();
-  ctx.moveTo(x0, y0);
-  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 8);
-  ctx.moveTo(x0, y1);
-  ctx.lineTo(ringLeftEdge + 6, ringTopEdge + 28);
-  ctx.stroke();
+  ctx.moveTo(carpetX, rampBottom);
+  ctx.lineTo(carpetX + carpetW, rampBottom);
+  ctx.lineTo(ringLeftEdge + 26, ringTopEdge + 10);
+  ctx.lineTo(ringLeftEdge + 18, ringTopEdge + 14);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /**

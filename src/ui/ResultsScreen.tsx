@@ -131,6 +131,33 @@ export function ResultsScreen() {
           )}
         </div>
       )}
+      <div
+        style={{
+          marginBottom: 16,
+          padding: 10,
+          background: 'var(--bg-panel)',
+          border: '1px solid var(--border)',
+          fontSize: 11,
+          color: 'var(--text-dim)',
+          lineHeight: 1.5,
+        }}
+      >
+        <div style={{ color: 'var(--accent)', marginBottom: 4, fontWeight: 'bold' }}>
+          If the MP4 looks broken (frozen / wrong duration):
+        </div>
+        <div>
+          • <span style={{ color: 'var(--text)' }}>Use the replay link</span> — your league taps it,
+          watches the same match in their browser. Deterministic from the seed.
+        </div>
+        <div>
+          • <span style={{ color: 'var(--text)' }}>Screen-record the match</span> — macOS QuickTime
+          (Cmd+Shift+5) or Windows Game Bar (Win+G) captures the browser tab. Bulletproof.
+        </div>
+        <div>
+          • <span style={{ color: 'var(--text)' }}>Download PNG</span> — static results board with
+          everyone's pick, plays inline in iMessage as a picture.
+        </div>
+      </div>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         {result.recording && (
           <button onClick={downloadVideo}>

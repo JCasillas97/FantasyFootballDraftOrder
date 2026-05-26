@@ -63,9 +63,12 @@ export function MatchScreen() {
       // recorder.start) so MediaRecorder's mux timeline isn't poisoned by
       // AudioContext.currentTime drift.
       const audio = createCaptureAudio();
+      // 30fps + 900kbps. Lower than the original 60fps to make
+      // MediaRecorder's encoder happier on long matches and produce a
+      // smaller file (~3-6MB for a 90s match), still smooth enough.
       recorder = startRecording(canvas, {
-        fps: 60,
-        videoBitsPerSecond: 1_200_000,
+        fps: 30,
+        videoBitsPerSecond: 900_000,
         audio,
       });
       if (!recorder) audio.dispose();

@@ -257,12 +257,11 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
       triggered: false,
       stage: 'pending',
       stageTimer: 0,
-      // Catwalk's red carpet is centered around x=52 (rampLeft 14 +
-      // rampRight 90 / 2). Wrestler starts at the top of the carpet just
-      // below the TitanTron and walks all the way down through the ramp
-      // into the ring's top-left.
+      // Start at the top of the red carpet, directly under the TitanTron
+      // (the very back of the entrance ramp). Wrestler walks the FULL
+      // length down to the ring through fog + fireworks.
       startX: 52,
-      startY: 64,
+      startY: 58,
       ringEntryX: ringLeft() + PLAYABLE_INSET + 40,
       ringEntryY: ringTop() + PLAYABLE_INSET + 20,
     };

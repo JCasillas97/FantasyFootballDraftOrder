@@ -48,7 +48,7 @@ export function drawFrame(
   drawCatwalk(ctx, wallSecLocal);
   drawRing(ctx, opts.leagueName ?? '', computeRopeBounce(state));
   drawWrestlers(ctx, state, roster, sheets);
-  drawHud(ctx, state);
+  drawHud(ctx);
   if (opts.picks) drawDraftOverlay(ctx, opts.picks, roster);
   if (opts.resultsOverlay) {
     drawResultsOverlay(ctx, state.scheduler.schedule.eliminationOrder, roster);
@@ -64,6 +64,7 @@ export function drawFrame(
     const w = roster[state.surprise.wrestlerId];
     const name = w ? displayName(w, state.surprise.wrestlerId) : '???';
     drawSurpriseBanner(ctx, name);
+    drawEntranceEffects(ctx, wallSecLocal);
   }
 }
 
@@ -468,6 +469,66 @@ function drawIntroOverlay(
  * Banner across the top during the surprise wrestler's catwalk walk:
  * "NOW INTRODUCING: {name}!"
  */
+/**
+ * Fog rolling along the bottom of the entrance + crackling fireworks above
+ * the TitanTron. Only rendered while a wrestler is mid-catwalk walk.
+ */
+function drawEntranceEffects(ctx: CanvasRenderingContext2D, wallSec: number): void {
+  const rampLeft = 14;
+  const rampRight = 90;
+  const ringTopEdge = RING.cy - RING.halfH;
+
+  // Fog: 3 layered grey puffs sliding down the ramp, low opacity so the
+  // wrestler is still visible through them.
+  for (let i = 0; i < 5; i++) {
+    const phase = (wallSec * 0.6 + i * 0.4) % 1;
+    const cy = 100 + phase * (ringTopEdge - 100);
+    const cx = (rampLeft + rampRight) / 2 + Math.sin((wallSec + i) * 1.5) * 12;
+    const radius = 18 + Math.sin((wallSec + i * 0.7) * 2) * 6;
+    ctx.fillStyle = `rgba(200, 210, 220, ${0.22 * (1 - phase)})`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(180, 190, 200, ${0.18 * (1 - phase)})`;
+    ctx.beginPath();
+    ctx.arc(cx + 8, cy + 4, radius * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Fireworks: random spark bursts above and around the TitanTron.
+  // Two simultaneous bursts, each with 8 radial particles. Burst index
+  // cycles with wall-clock so the bursts appear/disappear continuously.
+  const numBursts = 3;
+  for (let b = 0; b < numBursts; b++) {
+    const burstCycle = 0.55; // seconds per burst
+    const t = ((wallSec + b * 0.18) % burstCycle) / burstCycle;
+    if (t < 0 || t > 1) continue;
+    // Burst origin — alternates positions across the top of the ramp
+    const seed = Math.floor((wallSec + b * 0.18) / burstCycle) * 7 + b * 31;
+    const ox = rampLeft - 6 + ((seed * 13) % (rampRight - rampLeft + 30));
+    const oy = 6 + ((seed * 7) % 30);
+    const colors = ['#ffd700', '#ff6644', '#ff44aa', '#44e8ff'];
+    const color = colors[seed % colors.length];
+    const sparks = 8;
+    for (let s = 0; s < sparks; s++) {
+      const angle = (s / sparks) * Math.PI * 2 + (seed % 7) * 0.2;
+      const dist = t * (16 + ((seed * 3 + s) % 8));
+      const px = ox + Math.cos(angle) * dist;
+      const py = oy + Math.sin(angle) * dist;
+      const alpha = 1 - t;
+      ctx.fillStyle = color.replace(')', `, ${alpha})`).replace('#', 'rgba(').replace(/^rgba\(([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i, (_, r, g, bl) => `rgba(${parseInt(r, 16)},${parseInt(g, 16)},${parseInt(bl, 16)}`);
+      ctx.fillRect(Math.round(px), Math.round(py), 2, 2);
+    }
+    // Bright core flash early in the burst
+    if (t < 0.25) {
+      ctx.fillStyle = `rgba(255, 230, 180, ${(1 - t * 4) * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(ox, oy, 6 * (1 - t * 2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
 function drawSurpriseBanner(ctx: CanvasRenderingContext2D, name: string): void {
   const bannerY = 26;
   const bannerH = 32;
@@ -1056,13 +1117,9 @@ function airborneOffset(w: Wrestler): number {
   return -Math.sin(skewed * Math.PI) * 80;
 }
 
-function drawHud(ctx: CanvasRenderingContext2D, state: MatchState): void {
-  const active = state.wrestlers.filter((w) => w.state !== 'eliminated').length;
-  ctx.fillStyle = '#ffcc00';
-  ctx.font = 'bold 14px ui-monospace, monospace';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillText(`Wrestlers: ${active}`, 16, 16);
-  ctx.fillText(`Time: ${state.t.toFixed(1)}s`, 16, 36);
+// HUD removed — the live count and time overlapped the catwalk and added
+// no value the viewer needed. Kept as a no-op so callers don't break.
+function drawHud(_ctx: CanvasRenderingContext2D): void {
+  // intentionally empty
 }
 

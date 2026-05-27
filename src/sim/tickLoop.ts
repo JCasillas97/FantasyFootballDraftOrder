@@ -967,6 +967,11 @@ function beginSpotlight(s: MatchState): void {
     if (w.id === sp.actor || w.id === sp.target) continue;
     if (!isActive(w)) continue;
     if (w.state === 'beingEliminated') continue;
+    // CRITICAL: don't touch wrestlers who are offstage or mid-catwalk-walk.
+    // Resetting them to 'wandering' was leaving the surprise wrestler stuck
+    // at (-200, -200) invisible for the rest of the match — and breaking
+    // the catwalk trigger (which checks for 'offstage').
+    if (w.state === 'offstage' || w.state === 'entering') continue;
     w.vx = 0;
     w.vy = 0;
     w.state = 'wandering';
@@ -1130,6 +1135,8 @@ function beginTableBreak(s: MatchState): void {
     if (w.id === tb.actor || w.id === tb.target) continue;
     if (!isActive(w)) continue;
     if (w.state === 'beingEliminated') continue;
+    // Don't reset offstage / entering wrestlers — same bug as beginSpotlight.
+    if (w.state === 'offstage' || w.state === 'entering') continue;
     w.vx = 0;
     w.vy = 0;
     w.state = 'wandering';

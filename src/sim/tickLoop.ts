@@ -530,6 +530,10 @@ export function tick(s: MatchState): void {
   // Integrate position from velocity for any state that uses velocity.
   for (const w of s.wrestlers) {
     if (w.state === 'eliminated') continue;
+    // Surprise wrestler on the catwalk is OUTSIDE the ring's playable
+    // area — their position is managed by surpriseTick directly. The
+    // ring clamp would yank them into the ring corner.
+    if (w.state === 'offstage' || w.state === 'entering') continue;
     w.x += w.vx * TICK_DT;
     w.y += w.vy * TICK_DT;
     if (w.state === 'beingEliminated') {
@@ -910,9 +914,12 @@ function separate(wrestlers: Wrestler[]): void {
   for (let i = 0; i < wrestlers.length; i++) {
     const a = wrestlers[i];
     if (!isActive(a) || a.state === 'beingEliminated') continue;
+    // Skip offstage / entering — they're on the catwalk, not the mat.
+    if (a.state === 'offstage' || a.state === 'entering') continue;
     for (let j = i + 1; j < wrestlers.length; j++) {
       const b = wrestlers[j];
       if (!isActive(b) || b.state === 'beingEliminated') continue;
+      if (b.state === 'offstage' || b.state === 'entering') continue;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const d2 = dx * dx + dy * dy;

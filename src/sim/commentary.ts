@@ -1,21 +1,13 @@
 import type { GameEvent } from './events';
-import type { AttackMove } from './wrestler';
 import { displayName, type Player } from '../state/store';
 
 /**
  * Templated play-by-play. The match engine emits semantic events; this turns
- * them into varied human-readable lines. Multiple variants per event type so
- * the log doesn't read like the same sentence repeated.
+ * them into varied human-readable lines. Commentary is intentionally sparse —
+ * only eliminations, the showpiece moments (top-rope splash, table-break),
+ * the surprise entrance, and the matchEnd announcement. hit / throw /
+ * nearRope events are silent so the log stays readable.
  */
-
-const TOSS_LINES = [
-  '{a} hurls {v} over the top rope!',
-  '{a} sends {v} flying out of the ring!',
-  '{v} takes a clothesline from hell, courtesy of {a}!',
-  "{a} dumps {v} like yesterday's trash!",
-  '{v} is OUT. {a} did the honors.',
-  'GOODBYE, {v}! Tossed by {a}!',
-];
 
 const ELIM_LINES = [
   '{v} hits the floor — pick #{p}.',
@@ -24,22 +16,17 @@ const ELIM_LINES = [
   'And {v} is done. Pick #{p} is theirs.',
 ];
 
-const SOLO_ELIM_LINES = [
-  '{v} eliminates themselves somehow?!',
-  'No eliminator credited — {v} just went over.',
-  '{v} took the dive without help.',
-];
-
-const NEAR_ROPE_LINES = [
-  '{v} is dangling on the apron!',
-  '{v} hangs on by their fingertips!',
-  '{v} is in serious trouble at the rope!',
-];
-
 const WINNER_LINES = [
   '{w} stands tall! Pick #1 is locked in.',
   "It's all over — {w} wins the rumble and the top pick!",
   '{w} is the LAST ONE STANDING. Number one overall.',
+];
+
+const SURPRISE_ENTRY_LINES = [
+  "WAIT! That music — IT'S {a}! THE CROWD HAS LOST IT!",
+  "HERE COMES {a}! THIS CHANGES EVERYTHING!",
+  "OH MY GOD — {a} IS THE SURPRISE ENTRANT!",
+  "{a} IS WALKING DOWN THE RAMP! THE LATE ENTRY IS HERE!",
 ];
 
 const SPOTLIGHT_CLIMB_LINES = [
@@ -63,45 +50,6 @@ const SPOTLIGHT_IMPACT_LINES = [
   'SPLINTERS EVERYWHERE! {a} just put {v} THROUGH the table!',
 ];
 
-// Move-specific hit flavor. Only a fraction of hits log a line (most stay
-// silent) so the log doesn't become a wall of text in a 45-second match.
-const HIT_LINES: Record<AttackMove, string[]> = {
-  punch: [
-    '{a} CRACKS {v} in the jaw!',
-    '{a} fires off a stiff jab on {v}.',
-    '{a} buries a fist into {v}.',
-  ],
-  kick: [
-    '{a} boots {v} square in the chest!',
-    '{a} lands a roundhouse on {v}!',
-    '{a} drives a knee into {v}.',
-  ],
-  tackle: [
-    '{a} TAKES {v} DOWN! Now mounting for the ground-and-pound!',
-    '{a} hits a takedown — raining elbows on {v}!',
-    '{a} drops {v} and starts pounding away!',
-  ],
-  clothesline: [
-    '{a} hits the ropes... AND CRUSHES {v} WITH A CLOTHESLINE!',
-    '{a} bounces off the ropes and DECAPITATES {v}!',
-    'OFF THE ROPES — {a} levels {v}!',
-  ],
-  grapple: ['{a} locks up with {v}.', '{a} muscles {v} into a hold.'],
-  irishWhip: [
-    '{a} sends {v} flying into the ropes!',
-    '{a} whips {v} across the ring!',
-  ],
-  topRope: [
-    '{a} flies off the top rope and CRUSHES {v}!',
-    'TOP ROPE! {a} comes down on {v}!',
-    '{a} hits a high-flying splash on {v}!',
-  ],
-  splash: [
-    '{a} crashes onto {v} with a splash!',
-    '{a} drops the bomb on {v}!',
-  ],
-};
-
 export class CommentaryStream {
   private lines: string[] = [];
   private rngState: number;
@@ -118,31 +66,10 @@ export class CommentaryStream {
   ingest(ev: GameEvent, roster: readonly Player[]): void {
     const nameOf = (i: number) => (roster[i] ? displayName(roster[i]) : `Player ${i + 1}`);
     switch (ev.type) {
-      case 'hit': {
-        // Only ~25% of hits make the log, so it doesn't fill up too fast.
-        if (this.nextRoll() < 0.25) {
-          const lines = HIT_LINES[ev.move] ?? HIT_LINES.punch;
-          this.push(
-            this.pick(lines).replace('{a}', nameOf(ev.attacker)).replace('{v}', nameOf(ev.victim)),
-          );
-        }
-        break;
-      }
-      case 'throw': {
-        this.push(
-          this.pick(TOSS_LINES).replace('{a}', nameOf(ev.attacker)).replace('{v}', nameOf(ev.victim)),
-        );
-        break;
-      }
-      case 'nearRope': {
-        this.push(this.pick(NEAR_ROPE_LINES).replace('{v}', nameOf(ev.wrestler)));
-        break;
-      }
+      // hit / throw / nearRope intentionally silent — too noisy. Commentary
+      // only fires on eliminations, the major showpiece events, and matchEnd.
       case 'eliminated': {
         const v = nameOf(ev.wrestler);
-        if (ev.eliminator === null || ev.eliminator === ev.wrestler) {
-          this.push(this.pick(SOLO_ELIM_LINES).replace('{v}', v));
-        }
         this.push(
           this.pick(ELIM_LINES).replace('{v}', v).replace('{p}', String(ev.finishingPosition)),
         );
@@ -151,6 +78,15 @@ export class CommentaryStream {
       case 'spotlight': {
         const a = nameOf(ev.actor);
         const v = nameOf(ev.target);
+        // actor === target means the surprise-entry signal (one wrestler,
+        // catwalk walk). Only the 'climb' stage fires a line so we get one
+        // entrance announcement, not three.
+        if (ev.actor === ev.target) {
+          if (ev.stage === 'climb') {
+            this.push(this.pick(SURPRISE_ENTRY_LINES).replace('{a}', a));
+          }
+          break;
+        }
         let lines: readonly string[];
         if (ev.stage === 'climb') lines = SPOTLIGHT_CLIMB_LINES;
         else if (ev.stage === 'leap') lines = SPOTLIGHT_LEAP_LINES;

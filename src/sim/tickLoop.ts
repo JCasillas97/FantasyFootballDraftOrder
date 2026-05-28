@@ -99,6 +99,7 @@ const MOUNT_DURATION = 1.6;
 const MOUNT_PUNCH_INTERVAL = 0.32;
 
 const INTRO_DURATION = 3.4;
+const INTRO_FIGHTER_DURATION = 1.6;
 /** Surprise wrestler enters when this many wrestlers are still in the ring. */
 const SURPRISE_TRIGGER_IN_RING = 2;
 const SURPRISE_CATWALK_DURATION = 6.0;
@@ -220,7 +221,19 @@ export interface MatchState {
   /** Earlier showstopper: table-break elimination (null = none planned). */
   tableBreak: TableBreakState | null;
   /** Pre-match intro hold ("ARE YOU READY TO RUMBLE!!!"). */
-  intro: { stage: 'pending' | 'shouting' | 'done'; stageTimer: number };
+  /**
+   * Pre-match intro flow. Stages:
+   *   pending → shouting (3.4s "ARE YOU READY TO RUMBLE!!!")
+   *     → fighterIntros (slideshow, INTRO_FIGHTER_DURATION per fighter)
+   *     → done (bell rings, match starts)
+   * `fighterIndex` is the roster index of the wrestler currently on screen
+   * during the fighterIntros stage.
+   */
+  intro: {
+    stage: 'pending' | 'shouting' | 'fighterIntros' | 'done';
+    stageTimer: number;
+    fighterIndex: number;
+  };
   /** Surprise late entrant — comes out on the catwalk mid-match. */
   surprise: SurpriseState | null;
 }
@@ -281,7 +294,7 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
     pendingEvents: [{ type: 'matchStart', seed }],
     spotlight: planSpotlight(schedule.eliminationOrder, rng),
     tableBreak: planTableBreak(schedule.eliminationOrder, rng),
-    intro: { stage: 'pending', stageTimer: INTRO_DURATION },
+    intro: { stage: 'pending', stageTimer: INTRO_DURATION, fighterIndex: 0 },
     surprise,
   };
 }
@@ -359,14 +372,32 @@ export function tick(s: MatchState): void {
   if (s.finished) return;
   // Spotlight handling: if an active sequence is in progress, time is paused
   // and the choreography drives the actor/target. Other wrestlers stand still.
-  // Pre-match intro hold: just keep sim time at 0 while the "ARE YOU READY
-  // TO RUMBLE" screen plays. Drains a wall-clock timer; doesn't advance s.t.
+  // Pre-match intro flow: sim time is paused for the whole sequence.
+  //   shouting   → ARE YOU READY TO RUMBLE!!! (3.4s)
+  //   fighterIntros → each fighter (1.6s each, roster order)
+  //   done       → match begins, sim time advances
   if (s.intro.stage === 'pending') {
     s.intro.stage = 'shouting';
   }
   if (s.intro.stage === 'shouting') {
     s.intro.stageTimer -= TICK_DT;
-    if (s.intro.stageTimer <= 0) s.intro.stage = 'done';
+    if (s.intro.stageTimer <= 0) {
+      s.intro.stage = 'fighterIntros';
+      s.intro.fighterIndex = 0;
+      s.intro.stageTimer = INTRO_FIGHTER_DURATION;
+    }
+    return;
+  }
+  if (s.intro.stage === 'fighterIntros') {
+    s.intro.stageTimer -= TICK_DT;
+    if (s.intro.stageTimer <= 0) {
+      s.intro.fighterIndex += 1;
+      if (s.intro.fighterIndex >= s.wrestlers.length) {
+        s.intro.stage = 'done';
+      } else {
+        s.intro.stageTimer = INTRO_FIGHTER_DURATION;
+      }
+    }
     return;
   }
 

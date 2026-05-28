@@ -59,6 +59,16 @@ export function drawFrame(
   if (state.intro.stage === 'shouting') {
     drawIntroOverlay(ctx, state.intro.stageTimer, opts.leagueName ?? '');
   }
+  if (state.intro.stage === 'fighterIntros') {
+    drawFighterIntro(
+      ctx,
+      state.intro.fighterIndex,
+      state.intro.stageTimer,
+      roster,
+      sheets,
+      wallSecLocal,
+    );
+  }
   // Surprise wrestler announcement during catwalk walk
   if (state.surprise && state.surprise.stage === 'walking') {
     const w = roster[state.surprise.wrestlerId];
@@ -470,6 +480,104 @@ function drawIntroOverlay(
   ctx.fillText('ARE YOU READY', CANVAS_W / 2, CANVAS_H / 2 - 36 + wob);
   ctx.fillStyle = `rgba(255, 204, 0, ${fade})`;
   ctx.fillText('TO RUMBLE!!!', CANVAS_W / 2, CANVAS_H / 2 + 30 - wob);
+}
+
+/**
+ * One-fighter-at-a-time intro card. Big sprite center-left, name + slot
+ * number center-right, spotlight cone overlay. Slides in / slides out at
+ * the edges of its time window so the transitions feel snappy.
+ */
+function drawFighterIntro(
+  ctx: CanvasRenderingContext2D,
+  fighterIndex: number,
+  remaining: number,
+  roster: readonly Player[],
+  sheets: SpriteSheets,
+  wallSec: number,
+): void {
+  const player = roster[fighterIndex];
+  if (!player) return;
+  const sheet = sheets.get(fighterIndex);
+
+  // Solid backdrop
+  ctx.fillStyle = 'rgba(8, 4, 18, 0.95)';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // Spotlight cone behind the wrestler
+  ctx.fillStyle = 'rgba(255, 220, 100, 0.10)';
+  ctx.beginPath();
+  ctx.moveTo(CANVAS_W * 0.18, 0);
+  ctx.lineTo(CANVAS_W * 0.42, 0);
+  ctx.lineTo(CANVAS_W * 0.50, CANVAS_H);
+  ctx.lineTo(CANVAS_W * 0.10, CANVAS_H);
+  ctx.closePath();
+  ctx.fill();
+
+  // Slide-in / slide-out animation: each fighter intro lasts ~1.6s.
+  // First 0.18s: slide in from left.  Last 0.18s: slide out to right.
+  const dur = 1.6;
+  const elapsed = dur - remaining;
+  let slide = 0; // 0 = on-screen
+  if (elapsed < 0.18) {
+    slide = -(0.18 - elapsed) / 0.18; // -1 (off-left) -> 0
+  } else if (remaining < 0.18) {
+    slide = (0.18 - remaining) / 0.18; // 0 -> 1 (off-right)
+  }
+  const slideX = slide * CANVAS_W * 0.6;
+
+  // Sprite — scaled up 4x (96x128 on canvas). Idle frame, with a slight
+  // wall-clock bob so they feel alive.
+  if (sheet) {
+    const scale = 4;
+    const sprW = SPRITE_W * scale;
+    const sprH = SPRITE_H * scale;
+    const sprX = CANVAS_W * 0.30 - sprW / 2 + slideX;
+    const sprY = CANVAS_H / 2 - sprH / 2 + Math.round(Math.sin(wallSec * 3) * 2);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sheet, 0, Animation.Idle * SPRITE_H, SPRITE_W, SPRITE_H, sprX, sprY, sprW, sprH);
+  }
+
+  // Slot label "FIGHTER #N"
+  const cardX = CANVAS_W * 0.62 + slideX;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#9090b8';
+  ctx.font = 'bold 18px ui-monospace, monospace';
+  ctx.fillText(`FIGHTER #${fighterIndex + 1}`, cardX, CANVAS_H / 2 - 60);
+
+  // Yellow accent bar under the slot label
+  ctx.fillStyle = '#ffcc00';
+  ctx.fillRect(cardX, CANVAS_H / 2 - 34, 60, 4);
+
+  // Big name. Wrap at ~12 chars if needed (input is maxLength=16 anyway).
+  const name = displayName(player, fighterIndex).toUpperCase();
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold 38px ui-monospace, monospace';
+  ctx.fillText(name, cardX, CANVAS_H / 2 - 16);
+
+  // Tagline
+  ctx.fillStyle = '#f0f0ff';
+  ctx.font = '14px ui-monospace, monospace';
+  ctx.fillText('ENTERING THE RUMBLE...', cardX, CANVAS_H / 2 + 36);
+
+  // Progress dots at the bottom — one per fighter, current one filled gold
+  const dotsY = CANVAS_H - 24;
+  const dotsW = Math.min(CANVAS_W - 80, roster.length * 14);
+  const dotsX = (CANVAS_W - dotsW) / 2;
+  for (let i = 0; i < roster.length; i++) {
+    const dotX = dotsX + (i + 0.5) * (dotsW / roster.length);
+    if (i === fighterIndex) {
+      ctx.fillStyle = '#ffcc00';
+      ctx.fillRect(dotX - 4, dotsY - 4, 8, 8);
+    } else if (i < fighterIndex) {
+      ctx.fillStyle = '#666688';
+      ctx.fillRect(dotX - 3, dotsY - 3, 6, 6);
+    } else {
+      ctx.strokeStyle = '#444466';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(dotX - 2.5, dotsY - 2.5, 5, 5);
+    }
+  }
 }
 
 /**

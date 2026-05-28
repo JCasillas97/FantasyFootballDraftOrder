@@ -99,7 +99,7 @@ const MOUNT_DURATION = 1.6;
 const MOUNT_PUNCH_INTERVAL = 0.32;
 
 const INTRO_DURATION = 3.4;
-const INTRO_FIGHTER_DURATION = 3.2;
+const INTRO_FIGHTER_DURATION = 2.0;
 /** Surprise wrestler enters when this many wrestlers are still in the ring. */
 const SURPRISE_TRIGGER_IN_RING = 2;
 const SURPRISE_CATWALK_DURATION = 6.0;

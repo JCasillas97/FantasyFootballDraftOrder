@@ -513,15 +513,15 @@ function drawFighterIntro(
   ctx.closePath();
   ctx.fill();
 
-  // Slide-in / slide-out animation: each fighter intro lasts ~1.6s.
-  // First 0.18s: slide in from left.  Last 0.18s: slide out to right.
-  const dur = 1.6;
+  // Slide-in / slide-out animation. Total stage = INTRO_FIGHTER_DURATION
+  // (3.2s); first 0.22s slides in from left, last 0.22s slides out right.
+  const dur = 3.2;
   const elapsed = dur - remaining;
-  let slide = 0; // 0 = on-screen
-  if (elapsed < 0.18) {
-    slide = -(0.18 - elapsed) / 0.18; // -1 (off-left) -> 0
-  } else if (remaining < 0.18) {
-    slide = (0.18 - remaining) / 0.18; // 0 -> 1 (off-right)
+  let slide = 0;
+  if (elapsed < 0.22) {
+    slide = -(0.22 - elapsed) / 0.22;
+  } else if (remaining < 0.22) {
+    slide = (0.22 - remaining) / 0.22;
   }
   const slideX = slide * CANVAS_W * 0.6;
 

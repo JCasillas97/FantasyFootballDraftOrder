@@ -100,9 +100,16 @@ const MOUNT_PUNCH_INTERVAL = 0.32;
 
 const INTRO_DURATION = 3.4;
 const INTRO_FIGHTER_DURATION = 2.0;
-/** Surprise wrestler enters when this many wrestlers are still in the ring. */
-const SURPRISE_TRIGGER_IN_RING = 2;
+/**
+ * Surprise wrestler enters when this many wrestlers are still in the ring.
+ * Set to 1: the runner-up eliminates pick #3 normally and starts celebrating
+ * (fake victory), THEN the surprise music hits and the late entrant comes
+ * down the catwalk. Sets up the table-break finale as a true heist.
+ */
+const SURPRISE_TRIGGER_IN_RING = 1;
 const SURPRISE_CATWALK_DURATION = 6.0;
+/** How long the lone wrestler poses in the center before the surprise arrives. */
+const FAKE_VICTORY_CELEBRATION = SURPRISE_CATWALK_DURATION + 2.0;
 interface SurpriseState {
   wrestlerId: number;
   triggered: boolean;
@@ -433,6 +440,26 @@ export function tick(s: MatchState): void {
           actor: s.surprise.wrestlerId,
           target: s.surprise.wrestlerId,
         });
+        // Fake victory: the lone in-ring wrestler thinks they've won and
+        // celebrates in the center of the ring. The table-break trigger will
+        // boot them out of celebration once the surprise lands, so we don't
+        // need to clear this state manually.
+        for (const w of s.wrestlers) {
+          if (w.id === s.surprise.wrestlerId) continue;
+          if (w.state === 'eliminated') continue;
+          if (w.state === 'offstage' || w.state === 'entering') continue;
+          w.state = 'celebrating';
+          w.x = RING.cx;
+          w.y = RING.cy;
+          w.vx = 0;
+          w.vy = 0;
+          w.targetId = null;
+          w.attackMove = null;
+          w.isFinisher = false;
+          w.downed = false;
+          w.stateTimer = FAKE_VICTORY_CELEBRATION;
+          break;
+        }
       }
     } else {
       // Wrestler isn't offstage anymore — mark surprise as done so the
@@ -531,16 +558,17 @@ export function tick(s: MatchState): void {
         s.tableBreak.stage === 'pending' &&
         s.scheduler.nextIndex === s.tableBreak.targetElimIdx
       ) {
-        // If the actor (the winner) is still mid-catwalk-walk, wait one
-        // tick. Otherwise the choreography would teleport them.
+        // If the actor (the winner) is still mid-catwalk-walk, hold the
+        // elimination — DON'T fall through to triggerFinisher, or the
+        // victim gets tossed by a random nearby wrestler before the surprise
+        // can land for the table-break.
         const tbActor = s.wrestlers[s.tableBreak.actor];
         if (tbActor.state === 'entering' || tbActor.state === 'offstage') {
-          // skip — try again next tick
-        } else {
-          s.tableBreak.target = victim;
-          beginTableBreak(s);
           return;
         }
+        s.tableBreak.target = victim;
+        beginTableBreak(s);
+        return;
       }
       if (
         s.spotlight &&

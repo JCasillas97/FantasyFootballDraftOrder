@@ -110,12 +110,20 @@ const SURPRISE_TRIGGER_IN_RING = 1;
 const SURPRISE_CATWALK_DURATION = 6.0;
 /** How long the lone wrestler poses in the center before the surprise arrives. */
 const FAKE_VICTORY_CELEBRATION = SURPRISE_CATWALK_DURATION + 2.0;
+/**
+ * Once the surprise enters the ring, hold the table-break finale for this
+ * long so the surprise and the runner-up actually brawl — punches, kicks,
+ * the works — before the spot table comes into play.
+ */
+const SURPRISE_BRAWL_DURATION = 6.5;
 interface SurpriseState {
   wrestlerId: number;
   triggered: boolean;
   /** 'pending' = waiting offstage. 'walking' = on the catwalk. 'arrived' = entered ring. */
   stage: 'pending' | 'walking' | 'arrived';
   stageTimer: number;
+  /** Countdown after `arrived` during which eliminations are blocked so the surprise + runner-up brawl. */
+  brawlTimer: number;
   startX: number;
   startY: number;
   ringEntryX: number;
@@ -280,6 +288,7 @@ export function createMatch({ seed, rosterSize }: MatchConfig): MatchState {
       triggered: false,
       stage: 'pending',
       stageTimer: 0,
+      brawlTimer: 0,
       // Top of the red carpet, directly under the TitanTron — feet at
       // y=120 puts the head at y=56 (just below the TitanTron's bottom
       // edge), so the wrestler is fully visible the moment they appear.
@@ -477,13 +486,33 @@ export function tick(s: MatchState): void {
     w.facing = 1;
     if (s.surprise.stageTimer <= 0) {
       s.surprise.stage = 'arrived';
-      w.state = 'wandering';
+      s.surprise.brawlTimer = SURPRISE_BRAWL_DURATION;
       w.x = s.surprise.ringEntryX;
       w.y = s.surprise.ringEntryY;
-      const wp = pickWanderPoint(s.rng);
-      w.wanderX = wp.x;
-      w.wanderY = wp.y;
+      // Find the fake-winner so the two of them lock onto each other and
+      // start trading blows immediately — no wandering-acrss-the-ring beat
+      // where they fail to engage.
+      const opponent = s.wrestlers.find(
+        (other) => other.id !== s.surprise!.wrestlerId && other.state === 'celebrating',
+      );
+      if (opponent) {
+        w.state = 'engaging';
+        w.targetId = opponent.id;
+        opponent.state = 'engaging';
+        opponent.targetId = w.id;
+        opponent.stateTimer = 0;
+      } else {
+        w.state = 'wandering';
+        const wp = pickWanderPoint(s.rng);
+        w.wanderX = wp.x;
+        w.wanderY = wp.y;
+      }
     }
+  }
+  // Brawl window: surprise + runner-up trade blows for a few seconds before
+  // the table-break finale fires. Decremented here; gated below.
+  if (s.surprise && s.surprise.stage === 'arrived' && s.surprise.brawlTimer > 0) {
+    s.surprise.brawlTimer -= TICK_DT;
   }
 
   if (s.spotlight && s.spotlight.stage !== 'pending' && s.spotlight.stage !== 'done') {
@@ -543,7 +572,22 @@ export function tick(s: MatchState): void {
   // Forced elimination trigger: when the scheduler's timestamp arrives,
   // pick a nearby attacker and have them perform a finisher whose hit
   // frame launches the scripted victim out of the ring.
-  if (victim !== null && target !== null && s.t >= target) {
+  //
+  // Held off — but NOT early-returned, because the position-integration
+  // loop below still needs to run — while:
+  //   - the surprise is still on the catwalk (table-break actor not yet in
+  //     ring), so a random nearby wrestler doesn't toss the runner-up over
+  //     the rope before the surprise can land for the finale
+  //   - the surprise just arrived and the brawl window is still running,
+  //     so the two of them actually trade punches before the table-break
+  const holdEliminations =
+    (s.tableBreak &&
+      s.tableBreak.stage === 'pending' &&
+      s.scheduler.nextIndex === s.tableBreak.targetElimIdx &&
+      (s.wrestlers[s.tableBreak.actor].state === 'entering' ||
+        s.wrestlers[s.tableBreak.actor].state === 'offstage')) ||
+    (s.surprise && s.surprise.stage === 'arrived' && s.surprise.brawlTimer > 0);
+  if (!holdEliminations && victim !== null && target !== null && s.t >= target) {
     const v = s.wrestlers[victim];
     if (
       isActive(v) &&
@@ -558,14 +602,6 @@ export function tick(s: MatchState): void {
         s.tableBreak.stage === 'pending' &&
         s.scheduler.nextIndex === s.tableBreak.targetElimIdx
       ) {
-        // If the actor (the winner) is still mid-catwalk-walk, hold the
-        // elimination — DON'T fall through to triggerFinisher, or the
-        // victim gets tossed by a random nearby wrestler before the surprise
-        // can land for the table-break.
-        const tbActor = s.wrestlers[s.tableBreak.actor];
-        if (tbActor.state === 'entering' || tbActor.state === 'offstage') {
-          return;
-        }
         s.tableBreak.target = victim;
         beginTableBreak(s);
         return;

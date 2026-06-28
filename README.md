@@ -2,6 +2,8 @@
 
 A 12-person royal-rumble simulation that picks your fantasy football draft order. Last wrestler standing gets pick #1; first one eliminated gets pick #12. Watch the match play out in 8-bit pixel art, then share the MP4 in your league group chat.
 
+**Live site:** <https://jcasillas97.github.io/FantasyFootballDraftOrder/>
+
 ## Quick start
 
 ```bash
@@ -13,18 +15,16 @@ npm run build      # production build to dist/
 
 Use **Chrome 126+** or **Safari 17+** when running matches you want to share — Firefox produces WebM, which doesn't preview inline in iMessage.
 
-## Deploy to Vercel
+## Deploy
 
-Zero-config. Two minutes from clone to live URL:
+The repo ships with a GitHub Actions workflow at `.github/workflows/deploy.yml` that publishes to **GitHub Pages** on every push to `main`. URL: <https://jcasillas97.github.io/FantasyFootballDraftOrder/> — fully public, no login required for viewers.
 
-1. Sign in to [vercel.com](https://vercel.com) with GitHub.
-2. **Add New → Project**, import this repository.
-3. Pick the branch (`main` after merging, or the feature branch directly).
-4. Click **Deploy**. Vite is auto-detected; the bundled `vercel.json` handles cache headers.
+One-time setup (already done for this repo):
 
-You get a URL like `your-project.vercel.app`. Open it on iPhone in Safari to verify mobile layout and replay links.
+1. GitHub repo → **Settings → Pages → Source: "GitHub Actions"**
+2. Repo must be public (free GitHub plan).
 
-Netlify and Cloudflare Pages work identically — connect the repo, accept defaults, ship.
+Want to host elsewhere? It's a static Vite app — Netlify, Cloudflare Pages, or any static host works. Just point them at `npm run build` with `dist/` as the output.
 
 ## How to use it
 
